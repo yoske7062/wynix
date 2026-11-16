@@ -543,8 +543,9 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
-        if upscaleDX12(bottle) && !ensureUpscaler() {  // a missing injected dylib would abort Wine
-            setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
+        if upscaleDX12(bottle) && !ensureUpscaler(bottle) {  // a missing injected dylib would abort Wine
+            setUpscaleDX12(bottle, false)
+            alertMessage = "DirectX 12 Boost was turned off for \(bottle.name): its files could not be restored."
         }
         afterSteamAutorunOff(bottle) { [self] in
             spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
@@ -1023,19 +1024,22 @@ final class BottleStore: ObservableObject {
     /// EmulateModeset keeps the monitor at its native mode when the game picks 1600x900.
     func upscaleDX12(_ bottle: Bottle) -> Bool { flag(bottle, "WynixUpscaleDX12") }
 
-    /// Fixed path with no spaces or colons: the bottle's export line is unquoted and
-    /// DYLD_INSERT_LIBRARIES is colon-separated. dyld kills the process if this file is
-    /// missing, so it is re-copied before every launch from a bottle that uses it.
-    static let upscalerPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".wynix/wynix_upscale.dylib")
+    /// The dylib lives inside the bottle, so the bottle keeps working when opened from Finder
+    /// or the Dock and survives WYNIX being removed. dyld kills Wine if the file is missing, and
+    /// the bottle's export line is unquoted and DYLD_INSERT_LIBRARIES is colon-separated, so
+    /// bottles whose path has a space or colon can't use it.
+    func upscalerURL(_ bottle: Bottle) -> URL? {
+        let url = bottle.contents.appendingPathComponent("Frameworks/wynix_upscale.dylib")
+        return url.path.contains(" ") || url.path.contains(":") ? nil : url
+    }
 
-    @discardableResult
-    func ensureUpscaler() -> Bool {
-        guard let src = Bundle.main.url(forResource: "wynix_upscale", withExtension: "dylib") else { return false }
-        let dest = Self.upscalerPath, fm = FileManager.default
+    /// Copies the bundled dylib into the bottle if missing or outdated.
+    func ensureUpscaler(_ bottle: Bottle) -> Bool {
+        guard let src = Bundle.main.url(forResource: "wynix_upscale", withExtension: "dylib"),
+              let dest = upscalerURL(bottle) else { return false }
+        let fm = FileManager.default
         if fm.contentsEqual(atPath: src.path, andPath: dest.path) { return true }
         do {
-            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? fm.removeItem(at: dest)
             try fm.copyItem(at: src, to: dest)
             removexattr(dest.path, "com.apple.quarantine", 0)
@@ -1047,11 +1051,13 @@ final class BottleStore: ObservableObject {
 
     func setUpscaleDX12(_ bottle: Bottle, _ on: Bool) {
         if on && boost(bottle) { setBoost(bottle, false) }  // Boost's DXMT already upscales
-        if on && !ensureUpscaler() {
-            alertMessage = "DirectX 12 Boost could not be installed from this copy of WYNIX."
+        guard !on || ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path ?? (on ? nil : "") else {
+            alertMessage = upscalerURL(bottle) == nil
+                ? "DirectX 12 Boost can't be used for this bottle: its folder path contains a space."
+                : "DirectX 12 Boost could not be installed into \(bottle.name)."
             return
         }
-        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? Self.upscalerPath.path : nil)
+        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", on ? String(format: "%.2f", Self.boostFactor) : nil)
         setRegistry(bottle, key: "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver", name: "EmulateModeset", value: on ? "y" : nil)

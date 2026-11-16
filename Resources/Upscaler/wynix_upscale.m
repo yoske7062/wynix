@@ -27,10 +27,11 @@
 #import <mach-o/dyld.h>
 #include <dlfcn.h>
 
-static BOOL gLog, gAnyLayer, gDisabled;
+static BOOL gLog, gAnyLayer;
+static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
 static double gScale = 1.6;
-static IMP gOrigNextDrawable, gOrigPresent;
+static IMP gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey;
 
 #define LOG(...) do { if (gLog) { fprintf(stderr, "wynix_upscale: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
@@ -132,6 +133,7 @@ static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
     id<MTLTexture> out = real.texture;
     WynixLayerState *s = stateFor(self, out.width, out.height);
     if (!s || (out.usage & s.scaler.outputTextureUsage) != s.scaler.outputTextureUsage) return real;
+    if (!gOrigPresentAt || !gOrigPresentAfter) return real;  // a present variant we can't intercept
 
     WynixProxyDrawable *p = [WynixProxyDrawable new];
     p.real = real; p.state = s;
@@ -139,27 +141,46 @@ static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
     return p;
 }
 
-static void hookedPresent(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> drawable) {
-    if ([(NSObject *)drawable isKindOfClass:[WynixProxyDrawable class]]) {
-        WynixProxyDrawable *p = (WynixProxyDrawable *)drawable;
+// Swaps a proxy for its real drawable after encoding the upscale into this command buffer.
+static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> drawable) {
+    if (![(NSObject *)drawable isKindOfClass:[WynixProxyDrawable class]]) return drawable;
+    WynixProxyDrawable *p = (WynixProxyDrawable *)drawable;
+    @synchronized (p.state) {  // one scaler per layer; presents from two threads must not interleave
         id<MTLFXSpatialScaler> scaler = p.state.scaler;
         scaler.colorTexture = p.texture;
         scaler.outputTexture = p.real.texture;
-        [scaler encodeToCommandBuffer:self];
-        drawable = p.real;
+        [scaler encodeToCommandBuffer:cb];
     }
-    ((void (*)(id, SEL, id))gOrigPresent)(self, _cmd, drawable);
+    return p.real;
+}
+
+static void hookedPresent(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d) {
+    ((void (*)(id, SEL, id))gOrigPresent)(self, _cmd, upscaleInto(self, d));
+}
+static void hookedPresentAt(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d, CFTimeInterval t) {
+    ((void (*)(id, SEL, id, CFTimeInterval))gOrigPresentAt)(self, _cmd, upscaleInto(self, d), t);
+}
+static void hookedPresentAfter(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d, CFTimeInterval t) {
+    ((void (*)(id, SEL, id, CFTimeInterval))gOrigPresentAfter)(self, _cmd, upscaleInto(self, d), t);
 }
 
 // Hooks presentDrawable: on the command buffer class this device hands out. Done lazily on the
 // first Wine Metal frame so Steam, wineserver and other Wine processes never create a device.
+static IMP hookOne(Class c, SEL sel, IMP imp) {
+    Method m = class_getInstanceMethod(c, sel);
+    if (!m) return NULL;
+    IMP orig = method_getImplementation(m);
+    // class_replaceMethod overrides on the concrete class even when the IMP is inherited.
+    class_replaceMethod(c, sel, imp, method_getTypeEncoding(m));
+    return orig;
+}
+
 static void hookPresent(id<MTLDevice> dev) {
     Class cbClass = [[[dev newCommandQueue] commandBuffer] class];
-    Method mp = cbClass ? class_getInstanceMethod(cbClass, @selector(presentDrawable:)) : NULL;
-    if (!mp) { gDisabled = YES; LOG("presentDrawable: not found, disabled"); return; }
-    gOrigPresent = method_getImplementation(mp);
-    // class_replaceMethod overrides on the concrete class even when the IMP is inherited.
-    class_replaceMethod(cbClass, @selector(presentDrawable:), (IMP)hookedPresent, method_getTypeEncoding(mp));
+    gOrigPresent = cbClass ? hookOne(cbClass, @selector(presentDrawable:), (IMP)hookedPresent) : NULL;
+    if (!gOrigPresent) { gDisabled = YES; LOG("presentDrawable: not found, disabled"); return; }
+    gOrigPresentAt = hookOne(cbClass, @selector(presentDrawable:atTime:), (IMP)hookedPresentAt);
+    gOrigPresentAfter = hookOne(cbClass, @selector(presentDrawable:afterMinimumDuration:), (IMP)hookedPresentAfter);
     LOG("command buffer class %s", class_getName(cbClass));
 }
 
