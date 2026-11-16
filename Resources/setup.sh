@@ -160,16 +160,78 @@ terminate_orphaned_steam_processes() {
   return 1
 }
 
+# Runs `wine reg ...` inside the Steam bottle while it is already awake (so Wine's
+# auto-start list is not replayed).
+steam_bottle_reg() {
+  (
+    export WINEPREFIX="$PREFIX_ROOT" WINEDEBUG=-all WINEMSYNC=1 WINEESYNC=1
+    export DYLD_FALLBACK_LIBRARY_PATH="$WRAPPER/Contents/Frameworks/moltenvkcx:$WRAPPER/Contents/SharedSupport/wine/lib:$WRAPPER/Contents/Frameworks:/usr/lib"
+    "$WRAPPER/Contents/SharedSupport/wine/bin/wine" reg "$@" >/dev/null 2>&1
+  ) || true
+}
+
+# Steam re-enables "run at startup" every time it starts. Undo it while it runs; otherwise
+# Wine relaunches Steam whenever anything wakes the bottle.
+steam_remove_autorun_live() {
+  steam_bottle_reg delete 'HKCU\Software\Microsoft\Windows\CurrentVersion\Run' /v Steam /f
+  steam_bottle_reg add 'HKCU\Software\Valve\Steam' /v SuppressAutoRun /t REG_DWORD /d 1 /f
+}
+
+# Waits in the background for Steam to finish starting, then removes its auto-start entry.
+steam_remove_autorun_after_start() {
+  (
+    for _ in {1..120}; do steam_client_is_running && break; /bin/sleep 1; done
+    /bin/sleep 20
+    steam_client_is_running && steam_remove_autorun_live
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
+wrapper_wineserver_running() {
+  /bin/ps -axo command= | /usr/bin/grep -Fq "$WRAPPER/Contents/SharedSupport/wine/lib/wine/../../bin/wineserver"
+}
+
+# Turns Steam's auto-start off without racing Wine: while the bottle's wineserver runs it owns
+# the registry (a file edit would be overwritten when it saves), so go through `wine reg`;
+# once it has exited, edit user.reg directly (waking the bottle would replay the auto-start).
+steam_autorun_off() {
+  if wrapper_wineserver_running; then
+    steam_remove_autorun_live
+  else
+    steam_disable_autorun "$PREFIX_ROOT/user.reg"
+  fi
+}
+
 stop_wrapper() {
+  steam_client_is_running && steam_remove_autorun_live
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
   terminate_orphaned_steam_processes || return 1
   for _ in {1..20}; do
     if ! steam_is_running && ! steam_client_is_running; then
+      # wineserver saves the registry as it exits; edit only after that.
+      for _ in {1..40}; do wrapper_wineserver_running || break; /bin/sleep 0.25; done
+      steam_disable_autorun "$PREFIX_ROOT/user.reg"
       return 0
     fi
     /bin/sleep 0.25
   done
   return 1
+}
+
+# After Play: once every process of the game's install folder has exited, close the Steam
+# that Play started, so nothing stays running in the background.
+stop_steam_after_game() {
+  local install_dir="$1"
+  (
+    for _ in {1..600}; do
+      /bin/ps -axo command= | /usr/bin/grep -Fq "common\\${install_dir}" && break
+      /bin/sleep 1
+    done
+    while /bin/ps -axo command= | /usr/bin/grep -Fq "common\\${install_dir}"; do /bin/sleep 3; done
+    /bin/sleep 5
+    stop_wrapper
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
 }
 
 create_game_icns() {
@@ -195,6 +257,13 @@ create_game_icns() {
   fi
   /bin/rm -rf "$work"
   return "$result"
+}
+
+# The default library first, then every extra library Steam knows about (deduplicated).
+all_steam_libraries() {
+  { printf '%s\n' "$STEAMAPPS"
+    steam_library_steamapps "$STEAMAPPS/libraryfolders.vdf" "$PREFIX_ROOT"
+  } | /usr/bin/awk '!seen[$0]++'
 }
 
 steam_installer_is_running() {
@@ -227,6 +296,8 @@ configure_steam_english() {
     "$wine" reg add 'HKCU\Software\Valve\Steam' /v Language /t REG_SZ /d english /f >/dev/null 2>&1
     "$wine" reg add 'HKLM\Software\Wow6432Node\Valve\Steam' /v Language /t REG_SZ /d english /f >/dev/null 2>&1
     "$wine" reg add 'HKLM\Software\Wow6432Node\Valve\Steam\NSIS' /v InstallerLanguage /t REG_SZ /d 1033 /f >/dev/null 2>&1
+    # Hide Windows tray icons: on macOS they become menu bar icons that can't be clicked.
+    "$wine" reg add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer' /v NoTrayItemsDisplay /t REG_DWORD /d 1 /f >/dev/null 2>&1
   ) || fail_key steam_language_config_failed
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
 }
@@ -250,7 +321,8 @@ acquire_setup_lock() {
 
 is_configured() {
   [[ -f "$PLIST" ]] || return 1
-  [[ "$(/usr/bin/plutil -extract D3DMETAL raw -o - "$PLIST" 2>/dev/null || true)" == "1" ]] || return 1
+  [[ "$(/usr/bin/plutil -extract D3DMETAL raw -o - "$PLIST" 2>/dev/null || true)" == "1" \
+      || "$(/usr/bin/plutil -extract DXMT raw -o - "$PLIST" 2>/dev/null || true)" == "1" ]] || return 1
   [[ "$(/usr/bin/plutil -extract 'Program Name and Path' raw -o - "$PLIST" 2>/dev/null || true)" == "/Program Files (x86)/Steam/Steam.exe" ]]
 }
 
@@ -277,6 +349,11 @@ if [[ "${1:-setup}" == "runtime-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-setup}" == "autorun-off" ]]; then
+  steam_autorun_off
+  exit 0
+fi
+
 if [[ "${1:-setup}" == "check" ]]; then
   check_state
   exit 0
@@ -299,7 +376,9 @@ if [[ "${1:-setup}" == "launch" ]]; then
   fi
   phase "launching"
   message_key steam_starting
+  steam_autorun_off
   open_wrapper
+  steam_remove_autorun_after_start
   printf '@@STATE|running\n'
   message_key steam_start_requested
   exit 0
@@ -317,27 +396,81 @@ fi
 
 if [[ "${1:-setup}" == "list-games" ]]; then
   found=0
-  if [[ -d "$STEAMAPPS" ]]; then
+  while IFS= read -r library; do
+    [[ -d "$library" ]] || continue
     while IFS= read -r manifest; do
       game="$(read_appmanifest "$manifest" 2>/dev/null || true)"
       [[ -n "$game" ]] || continue
       IFS='|' read -r app_id encoded_name encoded_install_dir <<< "$game"
       [[ "$app_id" =~ ^[0-9]+$ ]] || continue
+      [[ "$app_id" == "228980" ]] && continue  # Steamworks Common Redistributables, not a game
+      # Only fully installed games (StateFlags bit 4); paused or partial downloads aren't playable.
+      state_flags="$(acf_value "$manifest" StateFlags)"
+      if [[ "$state_flags" =~ ^[0-9]+$ ]] && (( (state_flags & 4) == 0 )); then continue; fi
       icon_path="$(find_game_icon "$LIBRARY_CACHE" "$app_id" 2>/dev/null || true)"
       printf '@@GAME64|%s|%s|%s|%s\n' \
         "$app_id" "$encoded_name" "$encoded_install_dir" "$(protocol_encode "$icon_path")"
       found=1
-    done < <(/usr/bin/find "$STEAMAPPS" -maxdepth 1 -type f -name 'appmanifest_*.acf' -print | /usr/bin/sort)
-  fi
+      # DLSS support: games that use it ship NVIDIA's runtime next to the executable.
+      game_dir="$library/common/$(protocol_decode "$encoded_install_dir")"
+      dlss="none"
+      if [[ -d "$game_dir" ]]; then
+        if [[ -n "$(/usr/bin/find "$game_dir" -maxdepth 5 -iname 'nvngx_dlssg.dll' -print -quit 2>/dev/null)" ]]; then
+          dlss="framegen"
+        elif [[ -n "$(/usr/bin/find "$game_dir" -maxdepth 5 -iname 'nvngx_dlss.dll' -print -quit 2>/dev/null)" ]]; then
+          dlss="dlss"
+        fi
+      fi
+      printf '@@DLSS|%s|%s\n' "$app_id" "$dlss"
+    done < <(/usr/bin/find "$library" -maxdepth 1 -type f -name 'appmanifest_*.acf' -print | /usr/bin/sort)
+  done < <(all_steam_libraries)
   (( found == 1 )) || message_key no_installed_games
+  exit 0
+fi
+
+if [[ "${1:-setup}" == "play" ]]; then
+  app_id="${2:-}"
+  [[ "$app_id" =~ ^[0-9]+$ ]] || fail_key invalid_game_id
+  [[ -f "$OWNER_MARKER" && -x "$WRAPPER/Contents/MacOS/Sikarugir" && -f "$STEAM_EXE" ]] \
+    || fail_key installed_steam_not_found
+  /bin/mkdir -p "$APP_CACHE"
+  play_bat="$APP_CACHE/play-${app_id}.bat"
+  /usr/bin/sed "s/__STEAM_APP_ID__/$app_id/g" "$SCRIPT_DIR/game_launch.bat.template" > "$play_bat"
+  # The bat starts Steam itself with -silent when it isn't running, so only the game shows.
+  steam_was_running=0
+  if steam_client_is_running; then
+    steam_was_running=1
+  else
+    configure_wrapper_plist "$PLIST"
+    steam_autorun_off
+  fi
+  "$WRAPPER/Contents/MacOS/Sikarugir" WSS-installer "$play_bat" >/dev/null 2>&1 &
+  steam_remove_autorun_after_start
+  if (( steam_was_running == 0 )); then
+    play_dir=""
+    while IFS= read -r library; do
+      if [[ -f "$library/appmanifest_${app_id}.acf" ]]; then
+        play_dir="$(acf_value "$library/appmanifest_${app_id}.acf" installdir)"
+        break
+      fi
+    done < <(all_steam_libraries)
+    [[ -n "$play_dir" ]] && stop_steam_after_game "$play_dir"
+  fi
+  printf '@@STATE|running\n'
   exit 0
 fi
 
 if [[ "${1:-setup}" == "create-shortcut" ]]; then
   app_id="${2:-}"
   [[ "$app_id" =~ ^[0-9]+$ ]] || fail_key invalid_game_id
-  manifest="$STEAMAPPS/appmanifest_${app_id}.acf"
-  [[ -f "$manifest" ]] || fail_key game_info_not_found
+  manifest=""
+  while IFS= read -r library; do
+    if [[ -f "$library/appmanifest_${app_id}.acf" ]]; then
+      manifest="$library/appmanifest_${app_id}.acf"
+      break
+    fi
+  done < <(all_steam_libraries)
+  [[ -n "$manifest" ]] || fail_key game_info_not_found
   game="$(read_appmanifest "$manifest")" || fail_key game_info_read_failed
   IFS='|' read -r parsed_id encoded_name encoded_install_dir <<< "$game"
   [[ "$parsed_id" == "$app_id" ]] || fail_key game_id_mismatch
@@ -398,6 +531,59 @@ if [[ "${1:-setup}" == "repair" ]]; then
   progress 100 repairing
   printf '@@STATE|ready\n'
   message_key login_repaired
+  exit 0
+fi
+
+if [[ "${1:-setup}" == "create-bottle" ]]; then
+  bottle_name="${2:-}"
+  name_re='^[A-Za-z0-9 _.-]{1,40}$'
+  [[ "$bottle_name" =~ $name_re && "$bottle_name" != .* ]] || fail "Invalid bottle name."
+  # Bottles always appear in ~/Applications/Sikarugir; STEAMY_BOTTLE_DIR (e.g. a folder on an
+  # external SSD) stores the real bottle there and leaves a symlink here.
+  bottle_link="$HOME/Applications/Sikarugir/${bottle_name}.app"
+  bottle="$bottle_link"
+  if [[ -n "${STEAMY_BOTTLE_DIR:-}" ]]; then
+    /bin/mkdir -p "$STEAMY_BOTTLE_DIR" || fail "Could not create ${STEAMY_BOTTLE_DIR}."
+    bottle="$STEAMY_BOTTLE_DIR/${bottle_name}.app"
+  fi
+  [[ ! -e "$bottle_link" && ! -L "$bottle_link" && ! -e "$bottle" && ! -L "$bottle" ]] \
+    || fail "A bottle named ${bottle_name} already exists."
+  [[ -s "$ENGINE_ARCHIVE" && -s "$TEMPLATE_ARCHIVE" ]] \
+    || fail "Prepare Windows Steam first so the Wine engine is downloaded."
+  [[ "$(/usr/bin/shasum -a 256 "$ENGINE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$ENGINE_SHA256" \
+      && "$(/usr/bin/shasum -a 256 "$TEMPLATE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$TEMPLATE_SHA256" ]] \
+    || fail "The cached Wine engine is damaged. Run Steam setup again."
+  acquire_setup_lock
+  install_wrapper_atomically "$TEMPLATE_ARCHIVE" "$ENGINE_ARCHIVE" "$TEMPLATE" "$bottle" "$APP_CACHE" \
+    || fail "Could not create the bottle."
+  bottle_plist="$bottle/Contents/Info.plist"
+  plist_set "$bottle_plist" D3DMETAL integer 1
+  plist_set "$bottle_plist" SteamyAutoGraphics integer 1
+  plist_set "$bottle_plist" LSUIElement bool true
+  plist_set "$bottle_plist" CFBundleName string "$bottle_name"
+  plist_set "$bottle_plist" CFBundleIdentifier string "local.macsteam.bottle.$(/usr/bin/uuidgen)"
+  # The launcher sometimes stays open after creating the prefix (seen on external drives), so
+  # wait for the prefix and for Wine to go idle, then close it ourselves.
+  "$bottle/Contents/MacOS/Sikarugir" WSS-wineprefixcreate >/dev/null 2>&1 &
+  prefix_pid=$!
+  for _ in {1..600}; do
+    /bin/kill -0 "$prefix_pid" 2>/dev/null || break
+    if [[ -f "$bottle/Contents/SharedSupport/prefix/system.reg" && -d "$bottle/Contents/drive_c/windows" ]] \
+      && ! /bin/ps -axo command= | /usr/bin/grep -Fq "$bottle/Contents/SharedSupport/wine"; then
+      /bin/sleep 2
+      /bin/kill -TERM "$prefix_pid" 2>/dev/null || true
+      break
+    fi
+    /bin/sleep 1
+  done
+  wait "$prefix_pid" 2>/dev/null || true
+  [[ -d "$bottle/Contents/drive_c/windows" ]] || fail "The Windows environment could not be created."
+  "$bottle/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
+  if [[ "$bottle" != "$bottle_link" ]]; then
+    /bin/mkdir -p "${bottle_link%/*}"
+    /bin/ln -s "$bottle" "$bottle_link" || fail "Could not link the bottle into Applications."
+  fi
+  printf '@@BOTTLE|%s\n' "$bottle_link"
   exit 0
 fi
 
@@ -544,6 +730,7 @@ if [[ ! -f "$PLIST.original" ]]; then
 fi
 configure_wrapper_plist "$PLIST"
 configure_steam_english
+steam_disable_autorun "$PREFIX_ROOT/user.reg"
 
 is_configured || fail_key d3dmetal_verify_failed
 

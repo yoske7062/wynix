@@ -132,6 +132,25 @@ install_wrapper_atomically \
 [[ -d "$wrapper/Contents/SharedSupport/wine" ]] || fail "atomic wrapper install missing Wine engine"
 [[ -f "$wrapper/Contents/.macsteamsetup-owner" ]] || fail "atomic wrapper install missing owner marker"
 
+vdf_dir="$(/usr/bin/mktemp -d)"
+printf '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"C:\\\\Program Files (x86)\\\\Steam"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"Z:\\\\Volumes\\\\SSD\\\\SteamLibrary"\n\t}\n\t"2"\n\t{\n\t\t"path"\t\t"E:\\\\Games"\n\t}\n}\n' > "$vdf_dir/libraryfolders.vdf"
+libraries="$(steam_library_steamapps "$vdf_dir/libraryfolders.vdf" /prefix)"
+assert_equal "/prefix/drive_c/Program Files (x86)/Steam/steamapps
+/Volumes/SSD/SteamLibrary/steamapps
+/prefix/dosdevices/e:/Games/steamapps" "$libraries" "steam library folders"
+/bin/rm -rf "$vdf_dir"
+
+reg_dir="$(/usr/bin/mktemp -d)"
+printf '%s\n' 'WINE REGISTRY Version 2' \
+  '[Software\\Microsoft\\Windows\\CurrentVersion\\Run] 1' '"Steam"="\"C:\\steam.exe\" -silent"' '"Other"="x"' '' \
+  '[Software\\Valve\\Steam] 2' '"SuppressAutoRun"=dword:00000000' '"Language"="english"' > "$reg_dir/user.reg"
+steam_disable_autorun "$reg_dir/user.reg"
+/usr/bin/grep -q '^"Steam"=' "$reg_dir/user.reg" && fail "Steam autorun entry should be removed"
+/usr/bin/grep -q '^"Other"="x"' "$reg_dir/user.reg" || fail "other Run entries must stay"
+/usr/bin/grep -q '^"SuppressAutoRun"=dword:00000001' "$reg_dir/user.reg" || fail "SuppressAutoRun should be 1"
+/usr/bin/grep -q '^"Language"="english"' "$reg_dir/user.reg" || fail "other Steam values must stay"
+/bin/rm -rf "$reg_dir"
+
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"
 bash "$ROOT/Tests/localization.sh"

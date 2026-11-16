@@ -53,7 +53,14 @@ plist_set() {
 
 configure_wrapper_plist() {
   local plist="$1"
-  plist_set "$plist" D3DMETAL integer 1
+  # Steamy Boost runs the Steam bottle on DXMT (MetalFX upscaling); otherwise D3DMetal.
+  if [[ "$(/usr/bin/plutil -extract SteamyBoost raw "$plist" 2>/dev/null || true)" == "1" ]]; then
+    plist_set "$plist" D3DMETAL integer 0
+    plist_set "$plist" DXMT integer 1
+  else
+    plist_set "$plist" D3DMETAL integer 1
+    plist_set "$plist" DXMT integer 0
+  fi
   plist_set "$plist" 'Program Name and Path' string '/Program Files (x86)/Steam/Steam.exe'
   plist_set "$plist" 'Program Flags' string '-nobootstrapupdate -skipinitialbootstrap'
   plist_set "$plist" 'Skip Gecko' integer 1
@@ -145,4 +152,42 @@ find_game_icon() {
     fi
   done < <(/usr/bin/find "$cache_root/$app_id" -maxdepth 1 -type f -name '*.jpg' -print | /usr/bin/sort)
   return 1
+}
+
+# Prints the steamapps directory (as a macOS path) of every library listed in
+# Steam's libraryfolders.vdf. $2 is the Wine prefix that holds drive_c and dosdevices.
+steam_library_steamapps() {
+  local vdf="$1" prefix="$2" win drive rest
+  [[ -f "$vdf" ]] || return 0
+  while IFS= read -r win; do
+    win="${win//\\\\/\\}"
+    [[ "$win" =~ ^[A-Za-z]:\\ ]] || continue
+    drive="$(printf '%s' "${win:0:1}" | /usr/bin/tr 'A-Z' 'a-z')"
+    rest="${win:3}"
+    rest="${rest//\\//}"
+    case "$drive" in
+      c) printf '%s/drive_c/%s/steamapps\n' "$prefix" "$rest" ;;
+      z) printf '/%s/steamapps\n' "$rest" ;;
+      *) printf '%s/dosdevices/%s:/%s/steamapps\n' "$prefix" "$drive" "$rest" ;;
+    esac
+  done < <(/usr/bin/awk -F '"' '$2 == "path" { print $4 }' "$vdf" | /usr/bin/tr -d '\r')
+}
+
+# Turns off Windows Steam's "run at startup": drops the "Steam" entry from HKCU\...\Run and
+# sets Valve\Steam\SuppressAutoRun=1, editing user.reg as text. Wine runs every HKCU Run
+# entry whenever a bottle starts, so this entry made Steam pop up whenever anything touched
+# the bottle. Only call while the bottle's wineserver is stopped (it rewrites user.reg).
+steam_disable_autorun() {
+  local reg="$1" tmp
+  [[ -f "$reg" ]] || return 0
+  tmp="$(/usr/bin/mktemp "${reg}.XXXXXX")" || return 1
+  /usr/bin/awk '
+    /^\[/ {
+      run = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run\]/)
+      valve = ($0 ~ /^\[Software\\\\Valve\\\\Steam\]/)
+    }
+    run && /^"Steam"=/ { next }
+    valve && /^"SuppressAutoRun"=/ { print "\"SuppressAutoRun\"=dword:00000001"; next }
+    { print }
+  ' "$reg" > "$tmp" && /bin/mv "$tmp" "$reg"
 }

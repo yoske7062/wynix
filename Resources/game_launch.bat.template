@@ -1,2 +1,2 @@
 @echo off
-start "" "C:\Program Files (x86)\Steam\steam.exe" -applaunch __STEAM_APP_ID__
+start "" "C:\Program Files (x86)\Steam\steam.exe" -silent -nobootstrapupdate -skipinitialbootstrap -applaunch __STEAM_APP_ID__

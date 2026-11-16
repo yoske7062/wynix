@@ -42,6 +42,8 @@ final class InstallerModel: ObservableObject {
     @Published var isSteamRunning = false
     @Published var games: [SteamGame] = []
     @Published var localizedGameNames: [String: String] = [:]
+    /// Per Steam App ID: "framegen", "dlss" or "none" (from the NVIDIA runtime files the game ships).
+    @Published var dlssSupport: [String: String] = [:]
     @Published var shortcutMessage = ""
     @Published private(set) var runtimeStatusTitle: String?
 
@@ -79,7 +81,7 @@ final class InstallerModel: ObservableObject {
 
     init() {
         refresh()
-        statusTimer = Timer.publish(every: 2, on: .main, in: .common)
+        statusTimer = Timer.publish(every: 10, on: .main, in: .common)  // each check spawns bash + ps + lsof; keep it light
             .autoconnect()
             .sink { [weak self] _ in self?.refreshRuntimeStatus() }
     }
@@ -124,7 +126,7 @@ final class InstallerModel: ObservableObject {
         task.arguments = [script, "runtime-status"]
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice
-        task.environment = taskEnvironment()
+        task.environment = Self.taskEnvironment()
         task.terminationHandler = { [weak self] _ in
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? ""
@@ -140,6 +142,8 @@ final class InstallerModel: ObservableObject {
                     return
                 }
                 guard running != self.isSteamRunning else { return }
+                // Game session over (Steam closed after the game): give background apps their CPU back.
+                if !running { GameModeBooster.shared.release() }
                 self.isSteamRunning = running
                 self.message = running
                     ? L10n.string("message.steamRunning")
@@ -159,6 +163,12 @@ final class InstallerModel: ObservableObject {
         pendingGames = []
         shortcutMessage = ""
         run(mode: "list-games", changesMainState: false)
+    }
+
+    /// Starts Steam if needed, then launches the game through `steam -applaunch`.
+    func play(_ game: SteamGame) {
+        message = "Starting \(game.name)…"
+        run(mode: "play", arguments: [game.id], changesMainState: false)
     }
 
     func createShortcut(for game: SteamGame) {
@@ -195,7 +205,7 @@ final class InstallerModel: ObservableObject {
         task.arguments = [script, mode] + arguments
         task.standardOutput = pipe
         task.standardError = pipe
-        task.environment = taskEnvironment()
+        task.environment = Self.taskEnvironment()
 
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
@@ -248,7 +258,7 @@ final class InstallerModel: ObservableObject {
         }
     }
 
-    private func taskEnvironment() -> [String: String] {
+    static func taskEnvironment() -> [String: String] {
         let inherited = ProcessInfo.processInfo.environment
         return [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
@@ -312,6 +322,9 @@ final class InstallerModel: ObservableObject {
                     fetchLocalizedName(for: game)
                 }
             }
+        } else if value.hasPrefix("@@DLSS|") {
+            let parts = value.split(separator: "|")
+            if parts.count == 3 { dlssSupport[String(parts[1])] = String(parts[2]) }
         } else if value.hasPrefix("@@SHORTCUT|") {
             shortcutMessage = L10n.string("shortcut.created")
         } else if value == "@@STATE|ready" {
@@ -409,52 +422,134 @@ final class InstallerModel: ObservableObject {
     }
 }
 
-enum AppSection: String, CaseIterable, Identifiable {
+enum AppSection: Hashable {
     case games
     case management
-
-    var id: String { rawValue }
-    var title: String {
-        self == .games ? L10n.string("section.games") : L10n.string("section.management")
-    }
-    var icon: String { self == .games ? "gamecontroller.fill" : "gearshape.fill" }
+    case bottle(String)
 }
 
 struct ContentView: View {
     @StateObject private var model = InstallerModel()
-    @State private var selection: AppSection? = .games
+    @StateObject private var store = BottleStore()
+    @State private var selection: AppSection? = .management
     @State private var showStopConfirmation = false
+    @State private var showNewBottle = false
+    @State private var showInstall = false
+    @State private var showOptimize = false
+    @AppStorage(Tutorial.doneKey) private var tutorialDone = false
+
+    private var selectedBottleID: String? {
+        if case .bottle(let id) = selection { return id }
+        return nil
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
+            List(selection: $selection) {
+                Section("Library") {
+                    Label("Home", systemImage: "house.fill").tag(AppSection.management)
+                    Label(L10n.string("section.games"), systemImage: "gamecontroller.fill").tag(AppSection.games)
+                }
+                Section("Bottles") {
+                    ForEach(store.bottles) { bottle in
+                        BottleSidebarRow(store: store, bottle: bottle) { selection = .management }
+                            .tag(AppSection.bottle(bottle.id))
+                    }
+                }
             }
-            .navigationTitle("Windows Steam")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 250)
+            .safeAreaInset(edge: .top) {
+                SpinningW()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.top, 2).padding(.bottom, 6)
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let activity = store.activity {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(activity).font(.app(.caption)).lineLimit(2)
+                        }
+                    }
+                    Button { showOptimize = true } label: {
+                        Label("Optimize", systemImage: "bolt.fill").font(.app(.title3)).foregroundStyle(.steamyAccent)
+                    }
+                    Button { showInstall = true } label: {
+                        Label("Install from File", systemImage: "plus.app.fill").font(.app(.title3))
+                    }
+                    Button { showNewBottle = true } label: {
+                        Label("New Bottle", systemImage: "shippingbox")
+                    }
+                    SettingsLink {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+            }
+            .navigationTitle("WYNIX")
+            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
         } detail: {
             switch selection ?? .games {
             case .games:
-                GameLibraryView(model: model) {
+                GameLibraryView(model: model, store: store) {
                     selection = .management
                 }
             case .management:
-                ManagementView(model: model) {
-                    showStopConfirmation = true
+                HomeView(model: model, store: store,
+                         openBottle: { selection = .bottle($0.id) },
+                         confirmStop: { showStopConfirmation = true })
+            case .bottle(let id):
+                if let bottle = store.bottles.first(where: { $0.id == id }) {
+                    BottleView(store: store, bottle: bottle) { selection = .games }
+                        .id(bottle.id)
+                } else {
+                    ContentUnavailableView("Bottle Not Found", systemImage: "shippingbox")
                 }
             }
         }
-        .frame(width: 900, height: 590)
+        .frame(minWidth: 1080, minHeight: 680)
+        .tint(.steamyAccent)
+        .overlay {
+            if !tutorialDone {
+                TutorialOverlay(steps: Tutorial.steps(steamBottle: store.bottles.first?.id),
+                                selection: $selection) { withAnimation { tutorialDone = true } }
+            }
+        }
         .onChange(of: selection) { _, section in
             if section == .games, model.state == .ready { model.loadGames() }
         }
         .onChange(of: model.state) { _, state in
+            if state == .ready { store.reload() }
             if state == .ready, selection == .games {
                 model.loadGames()
-            } else if state == .notInstalled || state == .partial || state == .failed {
+            } else if state == .notInstalled || state == .partial || state == .failed, selectedBottleID == nil {
                 selection = .management
             }
+        }
+        .sheet(isPresented: $showNewBottle) {
+            NewBottleSheet(store: store) { selection = .bottle($0.id) }
+        }
+        .sheet(isPresented: $showOptimize) { OptimizeSheet(store: store) }
+        .sheet(isPresented: $showInstall) {
+            InstallSheet(store: store, bottleID: selectedBottleID)
+        }
+        .alert("Error", isPresented: Binding(
+            get: { store.alertMessage != nil },
+            set: { if !$0 { store.alertMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.alertMessage ?? "")
+        }
+        .alert("Possible piracy software", isPresented: Binding(
+            get: { store.riskPrompt != nil },
+            set: { if !$0 { store.riskPrompt = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {}
+            Button("Continue at My Own Risk", role: .destructive) { store.riskPrompt?.proceed() }
+        } message: {
+            Text("\"\(store.riskPrompt?.name ?? "")\" looks like a piracy tool (matched \"\(store.riskPrompt?.marker ?? "")\"). Using it to get games you have not bought is prohibited, violates the Steam Subscriber Agreement and can get your Steam account banned. This project does not support it. Are you sure you want to continue at your own risk?")
         }
         .alert(L10n.string("alert.stop.title"), isPresented: $showStopConfirmation) {
             Button(L10n.string("common.cancel"), role: .cancel) {}
@@ -465,16 +560,161 @@ struct ContentView: View {
     }
 }
 
+/// Steam library art card (600x900 cover from Steam's CDN, falls back to header art, then the icon).
+/// Sidebar wordmark, same as the website: metallic pink W that flips around + "YNIX" in white,
+/// wide black type (system font, expanded width).
+struct SpinningW: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var angle = 0.0
+    @State private var sweep = -1.0
+
+    private let font = Font.system(size: 24, weight: .black).width(.expanded)
+
+    private var w: some View {
+        Text("W").font(font)
+            .foregroundStyle(LinearGradient(
+                colors: [Color(hex: 0xC94470), Color(hex: 0xE05A83), Color(hex: 0xFFD3E0), Color(hex: 0xE05A83), Color(hex: 0xC94470)],
+                startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay {
+                GeometryReader { g in
+                    LinearGradient(colors: [.clear, Color(hex: 0xFFE4EC).opacity(0.95), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: g.size.width * 0.6)
+                        .offset(x: sweep * g.size.width)
+                }
+                .mask(Text("W").font(font))
+            }
+            .shadow(color: Color(hex: 0xE05A83).opacity(0.5), radius: 8)
+            .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            w
+            Text("YNIX").font(font).foregroundStyle(.primary)
+        }
+        .tracking(-0.6)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) { angle = 360 }
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) { sweep = 1.1 }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("WYNIX")
+    }
+}
+
+struct GameCoverCard: View {
+    let game: SteamGame
+    let name: String
+    let dlss: String?
+    let starting: Bool
+    let disabled: Bool
+    let play: () -> Void
+    @State private var hovering = false
+
+    private func art(_ file: String) -> URL? {
+        URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(game.id)/\(file)")
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            AsyncImage(url: art("library_600x900.jpg")) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else if phase.error != nil {
+                    AsyncImage(url: art("header.jpg")) { p in
+                        if let img = p.image {
+                            ZStack { Color(white: 0.12); img.resizable().scaledToFit() }
+                        } else { fallback }
+                    }
+                } else {
+                    Color(white: 0.16)
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .clipped()
+            .scaleEffect(hovering ? 1.04 : 1)
+
+            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+                .allowsHitTesting(false)
+
+            Button(action: play) {
+                Group {
+                    if starting {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Starting…") }
+                    } else {
+                        Text("Play")
+                    }
+                }
+                .font(.app(.title3).weight(.medium))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .padding(12)
+        }
+        .aspectRatio(2/3, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(alignment: .topTrailing) { DLSSBadge(level: dlss).padding(8) }
+        .help(name)
+        .onHover { h in withAnimation(.easeOut(duration: 0.4)) { hovering = h } }
+    }
+
+    private var fallback: some View {
+        VStack(spacing: 10) {
+            GameIconView(game: game)
+            Text(name).font(.app(.headline)).multilineTextAlignment(.center).padding(.horizontal, 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(white: 0.14))
+    }
+}
+
 struct GameLibraryView: View {
     @ObservedObject var model: InstallerModel
+    @ObservedObject var store: BottleStore
     let openManagement: () -> Void
+    /// Comma-separated Steam App IDs hidden from the list, like Steam's "Hide this game".
+    @AppStorage("hiddenGames") private var hiddenRaw = ""
+    @State private var showHidden = false
+    @State private var startingID: String?
+    @State private var confirmQuitSteam = false
+    @State private var pendingPlay: SteamGame?
+
+    private var steamBottle: Bottle? { store.bottles.first { $0.isSteam } }
+
+    private func play(_ game: SteamGame, checkOptimized: Bool = true) {
+        if checkOptimized, let bottle = steamBottle, !store.isOptimized(bottle) {
+            pendingPlay = game
+            return
+        }
+        model.play(game)
+        GameModeBooster.shared.engage()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { startingID = game.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            if startingID == game.id { withAnimation { startingID = nil } }
+        }
+    }
+
+    private var hidden: Set<String> { Set(hiddenRaw.split(separator: ",").map(String.init)) }
+    private func setHidden(_ id: String, _ hide: Bool) {
+        var ids = hidden
+        if hide { ids.insert(id) } else { ids.remove(id) }
+        hiddenRaw = ids.sorted().joined(separator: ",")
+    }
+    private var visibleGames: [SteamGame] {
+        model.games.filter { showHidden || !hidden.contains($0.id) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("games.title"))
-                        .font(.largeTitle.bold())
+                        .font(.app(.largeTitle).bold())
                     Text(L10n.string("games.subtitle"))
                         .foregroundStyle(.secondary)
                 }
@@ -492,15 +732,47 @@ struct GameLibraryView: View {
                     }
                     .disabled(model.operationInProgress)
 
+                    if let steam = steamBottle {
+                        Toggle(isOn: Binding(get: { store.boost(steam) }, set: { store.setBoost(steam, $0) })) {
+                            Label("Boost", systemImage: "bolt.badge.clock")
+                        }
+                        .toggleStyle(.button)
+                        .help("Set the game to 1600×900: MetalFX upscales it to your screen and Metal holds a steady 60 FPS. DirectX 11 games; restart Steam to apply.")
+                    }
+
+                    if model.isSteamRunning {
+                        Button { confirmQuitSteam = true } label: {
+                            Label("Quit Steam", systemImage: "power")
+                        }
+                        .help("Closes Windows Steam completely, including the icon in the menu bar")
+                    }
+
                     Button {
                         model.loadGames()
                     } label: {
                         Label(L10n.string("common.refresh"), systemImage: "arrow.clockwise")
                     }
                     .disabled(model.operationInProgress)
+
+                    let hiddenCount = model.games.filter { hidden.contains($0.id) }.count
+                    if hiddenCount > 0 {
+                        Button { showHidden.toggle() } label: {
+                            Label(showHidden ? "Hide Hidden" : "Hidden (\(hiddenCount))",
+                                  systemImage: showHidden ? "eye.slash" : "eye")
+                        }
+                        .help("Show or hide the games you hid")
+                    }
                 }
             }
-            .padding(.bottom, 22)
+            .padding(.bottom, steamBottle.map { store.boost($0) } == true ? 8 : 22)
+
+            if let steam = steamBottle, store.boost(steam) {
+                Label("Boost is on: in each game's video settings choose 1600×900 (fullscreen). DirectX 11 games only; restart Steam if it was open.",
+                      systemImage: "bolt.badge.clock")
+                    .font(.app(.callout))
+                    .foregroundStyle(.steamyAccent)
+                    .padding(.bottom, 14)
+            }
 
             if model.state == .checking {
                 Spacer()
@@ -532,30 +804,30 @@ struct GameLibraryView: View {
                 )
                 Spacer()
             } else {
-                List(model.games) { game in
-                    HStack(spacing: 14) {
-                        GameIconView(game: game)
-                        VStack(alignment: .leading, spacing: 3) {
-                            let localizedName = model.localizedGameNames[game.id]
-                            Text(localizedName ?? game.name).fontWeight(.semibold)
-                            Text(localizedName == nil ? "Steam App ID \(game.id)" : "\(game.name) · Steam App ID \(game.id)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)], spacing: 18) {
+                        ForEach(visibleGames) { game in
+                            let isHidden = hidden.contains(game.id)
+                            GameCoverCard(game: game,
+                                          name: model.localizedGameNames[game.id] ?? game.name,
+                                          dlss: model.dlssSupport[game.id],
+                                          starting: startingID == game.id,
+                                          disabled: model.operationInProgress) { play(game) }
+                                .opacity(isHidden ? 0.5 : 1)
+                                .contextMenu {
+                                    Button("Play") { play(game) }
+                                    Button(L10n.string("games.createShortcut")) { model.createShortcut(for: game) }
+                                    Button(isHidden ? "Unhide Game" : "Hide Game") { setHidden(game.id, !isHidden) }
+                                }
                         }
-                        Spacer()
-                        Button(L10n.string("games.createShortcut")) {
-                            model.createShortcut(for: game)
-                        }
-                        .disabled(model.operationInProgress)
                     }
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 4)
                 }
-                .listStyle(.inset)
             }
 
             if !model.shortcutMessage.isEmpty {
                 Label(model.shortcutMessage, systemImage: "checkmark.circle.fill")
-                    .font(.callout)
+                    .font(.app(.callout))
                     .foregroundStyle(.green)
                     .padding(.top, 12)
             }
@@ -564,6 +836,56 @@ struct GameLibraryView: View {
         .onAppear {
             if model.state == .ready { model.loadGames() }
         }
+        .alert("Optimize before playing?", isPresented: Binding(
+            get: { pendingPlay != nil }, set: { if !$0 { pendingPlay = nil } }
+        )) {
+            Button("Optimize & Play") {
+                if let game = pendingPlay, let bottle = steamBottle {
+                    store.optimizeForGaming(bottle) { play(game, checkOptimized: false) }
+                }
+            }
+            Button("Play Anyway") { if let game = pendingPlay { play(game, checkOptimized: false) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Steam games aren't optimized yet. Optimizing gives better performance and takes a second.")
+        }
+        .alert(L10n.string("alert.stop.title"), isPresented: $confirmQuitSteam) {
+            Button(L10n.string("common.cancel"), role: .cancel) {}
+            Button(L10n.string("alert.stop.confirm"), role: .destructive, action: model.stopSteam)
+        } message: {
+            Text(L10n.string("alert.stop.message"))
+        }
+    }
+}
+
+/// Tells the player whether a game can use DLSS (mapped to Apple's MetalFX by D3DMetal).
+struct DLSSBadge: View {
+    let level: String?
+
+    var body: some View {
+        switch level {
+        case "framegen":
+            badge("DLSS + Frame Gen", icon: "sparkles", color: .green,
+                  help: "Supports DLSS and Frame Generation. Turn both on in the game's graphics settings for the most FPS (Optimize enables DLSS in WYNIX).")
+        case "dlss":
+            badge("DLSS", icon: "sparkles", color: .green,
+                  help: "Supports DLSS upscaling. Turn it on in the game's graphics settings for more FPS (Optimize enables DLSS in WYNIX).")
+        case "none":
+            badge("No DLSS", icon: "minus.circle", color: .secondary,
+                  help: "This game has no DLSS. For more FPS lower its resolution in the game's settings (1080p or 1600×900 on your 1440p screen).")
+        default:
+            EmptyView()
+        }
+    }
+
+    private func badge(_ text: String, icon: String, color: Color, help: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.app(.caption2).weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+            .help(help)
     }
 }
 
@@ -579,137 +901,13 @@ struct GameIconView: View {
                     .scaledToFit()
             } else {
                 Image(systemName: "gamecontroller.fill")
-                    .font(.title2)
+                    .font(.app(.title2))
                     .foregroundStyle(.blue)
             }
         }
         .frame(width: 40, height: 40)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
         .clipShape(RoundedRectangle(cornerRadius: 9))
-    }
-}
-
-struct ManagementView: View {
-    @ObservedObject var model: InstallerModel
-    let confirmStop: () -> Void
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.string("management.title"))
-                        .font(.largeTitle.bold())
-                    Text(L10n.string("management.subtitle"))
-                        .foregroundStyle(.secondary)
-                }
-
-                StatusCard(model: model)
-
-                if model.state == .installing {
-                    VStack(alignment: .leading, spacing: 9) {
-                        HStack {
-                            Text(
-                                model.needsUserAction
-                                    ? L10n.string("management.userAction")
-                                    : L10n.string("management.overallProgress")
-                            )
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(model.needsUserAction ? .orange : .secondary)
-                            Spacer()
-                            Text("\(Int(model.progress))%")
-                                .font(.system(.callout, design: .rounded).monospacedDigit().weight(.semibold))
-                        }
-                        ProgressView(value: model.progress, total: 100)
-                            .tint(model.needsUserAction ? .orange : .blue)
-                        if !model.transferText.isEmpty {
-                            Text(model.transferText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(16)
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
-                }
-
-                if model.state != .ready {
-                    Button(action: model.primaryAction) {
-                        Text(model.primaryTitle)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(model.isBusy)
-                }
-
-                if model.state == .ready {
-                    GroupBox(L10n.string("management.tools")) {
-                        VStack(spacing: 0) {
-                            ManagementRow(
-                                title: "Windows Steam",
-                                detail: model.isSteamRunning
-                                    ? L10n.string("management.steam.stopDetail")
-                                    : L10n.string("management.steam.openDetail"),
-                                icon: model.isSteamRunning ? "power" : "play.fill",
-                                actionTitle: model.isSteamRunning
-                                    ? L10n.string("common.stop")
-                                    : L10n.string("common.open"),
-                                isDisabled: model.isBusy,
-                                action: {
-                                    if model.isSteamRunning {
-                                        confirmStop()
-                                    } else {
-                                        model.openSteam()
-                                    }
-                                }
-                            )
-                            Divider().padding(.leading, 42)
-                            ManagementRow(
-                                title: L10n.string("management.repair.title"),
-                                detail: L10n.string("management.repair.detail"),
-                                icon: "wrench.and.screwdriver",
-                                actionTitle: L10n.string("common.repair"),
-                                action: model.repairSteamUI
-                            )
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-
-                HStack {
-                    Button(L10n.string("management.openFolder"), action: model.openInstallFolder)
-                        .disabled(model.state == .notInstalled || model.state == .checking)
-                    Spacer()
-                    Button(
-                        model.showLog
-                            ? L10n.string("management.hideLog")
-                            : L10n.string("management.showLog")
-                    ) {
-                        model.showLog.toggle()
-                    }
-                }
-
-                if model.showLog {
-                    ScrollView {
-                        Text(model.log.isEmpty ? L10n.string("management.noLog") : model.log)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(height: 140)
-                    .padding(12)
-                    .background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.string("disclaimer.compatibility"))
-                    Text(L10n.string("disclaimer.unaffiliated"))
-                }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            }
-            .padding(28)
-        }
     }
 }
 
@@ -727,9 +925,9 @@ struct StatusCard: View {
                     in: RoundedRectangle(cornerRadius: 14)
                 )
             VStack(alignment: .leading, spacing: 4) {
-                Text(model.statusTitle).font(.headline)
+                Text(model.statusTitle).font(.app(.headline))
                 Text(model.message)
-                    .font(.callout)
+                    .font(.app(.callout))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -757,7 +955,7 @@ struct ManagementRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).fontWeight(.medium)
                 Text(detail)
-                    .font(.caption)
+                    .font(.app(.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -768,10 +966,40 @@ struct ManagementRow: View {
     }
 }
 
+/// On quit, offer to close Steam and Windows programs so nothing keeps running in the background.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { GameModeBooster.shared.release() }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard BottleStore.windowsProgramsRunning else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Close Steam and Windows apps too?"
+        alert.informativeText = "Steam or other Windows programs are still running in the background. Close everything, or keep them running after WYNIX quits?"
+        alert.addButton(withTitle: "Close Everything")
+        alert.addButton(withTitle: "Keep Running")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            BottleStore.closeAllWindowsPrograms()
+            return .terminateNow
+        case .alertSecondButtonReturn:
+            return .terminateNow
+        default:
+            return .terminateCancel
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
 @main
 struct MacSteamSetupApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
-        WindowGroup { ContentView() }
-            .windowResizability(.contentSize)
+        WindowGroup { RootView() }
+            .windowResizability(.contentMinSize)
+        Settings { SettingsView() }
     }
 }

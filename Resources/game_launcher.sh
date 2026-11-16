@@ -20,43 +20,7 @@ show_alert() {
   exit 3
 }
 
-steam_client_is_running() {
-  local contents_path pid
-  contents_path="$(cd "$WRAPPER/Contents" && pwd -P)"
-  while IFS= read -r pid; do
-    [[ "$pid" =~ ^[0-9]+$ ]] || continue
-    if /usr/sbin/lsof -a -p "$pid" -d cwd -Fn 2>/dev/null \
-      | /usr/bin/awk -v root="n$contents_path" '
-          $0 == root || index($0, root "/") == 1 { found=1 }
-          END { exit(found ? 0 : 1) }
-        '; then
-      return 0
-    fi
-  done < <(/bin/ps -axo pid=,command= | /usr/bin/awk '
-    {
-      pid=$1
-      $1=""
-      sub(/^[[:space:]]+/, "", $0)
-      command=tolower($0)
-      if (command ~ /^[a-z]:\\.*\\steam\.exe([[:space:]]|$)/) print pid
-    }
-  ')
-  return 1
-}
-
-if ! steam_client_is_running; then
-  /usr/bin/open "$WRAPPER"
-  for _ in {1..240}; do
-    steam_client_is_running && break
-    /bin/sleep 0.5
-  done
-fi
-
-steam_client_is_running || {
-  show_alert shortcut_steam_start_failed
-  exit 4
-}
-
+# LaunchGame.bat starts Steam with -silent when needed, so only the game window appears.
 if ! "$WRAPPER_LAUNCHER" WSS-installer "$GAME_COMMAND" >/dev/null 2>&1; then
   show_alert shortcut_game_start_failed
   exit 5

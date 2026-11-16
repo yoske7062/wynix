@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WYNIX</title>
+<meta name="description" content="Play your Windows Steam games on your Mac. Free.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23111'/%3E%3Cpath d='M13 24l8 15 11-15 11 15 8-15' fill='none' stroke='%23fff' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:oklch(0.15 0 0); --ink:oklch(0.97 0 0); --gray:oklch(0.7 0 0); --line:oklch(0.26 0 0); --soft:oklch(0.2 0 0);
+  --accent:oklch(0.92 0.14 115); --r:16px;
+  --z-nav:10;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:Geist,system-ui,sans-serif;font-size:17px;line-height:1.55}
+a{color:inherit;text-decoration:none}
+img{display:block;width:100%}
+h1,h2{text-wrap:balance}
+p{text-wrap:pretty}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+nav{position:fixed;inset:0 0 auto;z-index:var(--z-nav);border-bottom:1px solid transparent;transition:background .5s,border-color .5s}
+nav.s{background:oklch(0.15 0 0 / .8);backdrop-filter:saturate(1.6) blur(14px);border-color:var(--line)}
+nav .wrap{height:64px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.02em}
+.brand svg{width:24px;height:24px}
+.links{display:flex;gap:32px;font-size:14px;color:var(--gray)}
+.links a{transition:color .25s}.links a:hover{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:99px;background:var(--ink);color:var(--bg);font-size:14px;font-weight:500;transition:transform .4s cubic-bezier(.16,1,.3,1),background .3s}
+.btn:hover{transform:translateY(-1px);background:oklch(0.85 0 0)}
+.btn.lg{height:52px;padding:0 26px;font-size:16px}
+.btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.ghost:hover{background:var(--soft)}
+
+.hero{padding-top:168px;text-align:center}
+.pill{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--gray);border:1px solid var(--line);border-radius:99px;padding:6px 14px 6px 10px}
+.pill i{width:7px;height:7px;border-radius:50%;background:oklch(0.62 0.17 145)}
+h1{font-size:clamp(44px,7vw,88px);font-weight:500;letter-spacing:-.035em;line-height:1.02;margin:28px auto 0;max-width:12ch}
+h1 span,h2 span{color:var(--gray)}
+.sub{color:var(--gray);font-size:19px;max-width:460px;margin:24px auto 0}
+.ctas{display:flex;gap:10px;justify-content:center;margin-top:36px}
+.shot{margin:80px auto 0;border-radius:var(--r);overflow:hidden;background:var(--soft)}
+.shot img{aspect-ratio:16/9;object-fit:cover}
+
+section.wrap{padding-top:168px}
+h2{font-size:clamp(32px,4.2vw,52px);font-weight:500;letter-spacing:-.03em;line-height:1.06;max-width:16ch}
+.lead{color:var(--gray);font-size:18px;max-width:44ch;margin-top:20px}
+
+.steps{display:grid;grid-template-columns:repeat(3,1fr);margin-top:64px;border-top:1px solid var(--line)}
+.steps div{padding:28px 32px 0 0}
+.steps div+div{padding-left:32px;border-left:1px solid var(--line)}
+.steps small{font-size:13px;color:var(--gray);font-variant-numeric:tabular-nums}
+.steps b{display:block;font-weight:500;font-size:19px;margin:20px 0 8px}
+.steps p{color:var(--gray);font-size:15px}
+
+.split{display:grid;grid-template-columns:1fr 1.15fr;gap:72px;align-items:center}
+.covers{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding-bottom:32px}
+.covers figure{border-radius:12px;overflow:hidden;aspect-ratio:3/4;background:var(--soft)}
+.covers img{height:100%;object-fit:cover;transition:transform 1.4s cubic-bezier(.16,1,.3,1)}
+.covers figure:hover img{transform:scale(1.04)}
+.covers figure:nth-child(2){transform:translateY(32px)}
+
+.engines{background:var(--soft);border-radius:var(--r);padding:10px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-radius:10px;font-size:15px;transition:background .7s cubic-bezier(.16,1,.3,1),box-shadow .7s}
+.row small{color:var(--gray);font-size:13px;display:flex;align-items:center;gap:12px}
+.row .dot{width:7px;height:7px;border-radius:50%;background:transparent;transition:background .7s}
+.row.on{background:oklch(0.27 0 0);box-shadow:0 1px 2px oklch(0 0 0 / .3),0 4px 8px oklch(0 0 0 / .2)}
+.row.on .dot{background:var(--ink)}
+.meter{display:flex;justify-content:space-between;align-items:baseline;padding:24px 20px 12px;margin-top:10px;border-top:1px solid var(--line)}
+.meter strong{font-size:40px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.meter span{color:var(--gray);font-size:14px}
+
+.wide{margin-top:56px;border-radius:var(--r);overflow:hidden;aspect-ratio:21/9;background:var(--soft)}
+.wide img{height:116%;object-fit:cover}
+
+.faq{max-width:720px;margin-top:48px}
+details{border-bottom:1px solid var(--line)}
+details:first-child{border-top:1px solid var(--line)}
+summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:24px 0;font-size:18px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";width:9px;height:9px;border-right:1.5px solid var(--gray);border-bottom:1.5px solid var(--gray);transform:rotate(45deg) translateY(-3px);transition:transform .5s cubic-bezier(.16,1,.3,1)}
+details[open] summary::after{transform:rotate(225deg) translateY(-3px)}
+details p{color:var(--gray);padding-bottom:24px;max-width:60ch}
+
+section.end{text-align:center;padding:200px 24px 140px}
+.end h2{margin:0 auto}
+.end .lead{margin:20px auto 36px}
+footer{border-top:1px solid var(--line);padding:28px 0;font-size:13px;color:var(--gray)}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:820px){
+  .links{display:none}
+  .hero{padding-top:128px}
+  .shot{margin-top:56px}
+  section.wrap{padding-top:112px}
+  .steps{grid-template-columns:1fr}
+  .steps div,.steps div+div{padding:24px 0;border-left:0;border-bottom:1px solid var(--line)}
+  .split{grid-template-columns:1fr;gap:40px}
+  #performance .engines{order:2}
+  .wide{aspect-ratio:4/3}
+  .ctas{flex-direction:column;align-items:center}
+  section.end{padding:140px 24px 100px}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#26282B"/><path d="M13 24l8 15 11-15 11 15 8-15" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="apple" viewBox="0 0 24 24"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.1 2.5-1.8 3.1-.5 7.6 1.3 10.1.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.900.8 3.3.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.6-1-2.6-4.2zM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.2-.6 2.9-1.4z"/></symbol>
+</svg>
+
+<nav id="nav">
+  <div class="wrap">
+    <a class="brand" href="#"><svg><use href="#logo"/></svg>WYNIX</a>
+    <div class="links"><a href="#how">How it works</a><a href="#library">Library</a><a href="#performance">Performance</a><a href="#faq">FAQ</a></div>
+    <a class="btn" href="#download"><svg width="14" height="14"><use href="#apple"/></svg>Download</a>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <span class="pill" data-in><i></i>Free for Apple Silicon Macs</span>
+  <h1 data-in>Windows games. <span>On your Mac.</span></h1>
+  <p class="sub" data-in>WYNIX installs Steam, tunes every game and keeps it at a steady 60 FPS. No Windows. No cost.</p>
+  <div class="ctas" data-in>
+    <a class="btn lg" href="#download"><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a>
+    <a class="btn lg ghost" href="#how">How it works</a>
+  </div>
+  <div class="shot" id="shot"><img id="heroImg" src="assets/hero-mac.jpg" alt="MacBook running a Windows game with WYNIX"></div>
+</header>
+
+<section id="how" class="wrap">
+  <h2 data-up>Three steps. <span>Then you play.</span></h2>
+  <div class="steps" data-list>
+    <div><small>01</small><b>Install Steam</b><p>One click sets up a clean Windows space with Steam inside.</p></div>
+    <div><small>02</small><b>Optimize</b><p>WYNIX picks the best graphics engine and settings for each game.</p></div>
+    <div><small>03</small><b>Play</b><p>Choose a game and press Play. Steam stays out of sight.</p></div>
+  </div>
+</section>
+
+<section id="library" class="wrap split">
+  <div>
+    <h2 data-up>Your games, <span>all in one place.</span></h2>
+    <p class="lead" data-up>Every installed Steam game in a clean grid. Press Play and it opens directly. Close it and everything shuts down with it.</p>
+  </div>
+  <div class="covers" data-covers>
+    <figure><img src="assets/ridgeline.jpg" alt="Ridgeline cover art"></figure>
+    <figure><img src="assets/ember.jpg" alt="Ember Keep cover art"></figure>
+    <figure><img src="assets/orbit.jpg" alt="Cold Orbit cover art"></figure>
+  </div>
+</section>
+
+<section id="performance" class="wrap split">
+  <div class="engines" id="engines" data-up>
+    <div class="row on">D3DMetal<small>DirectX 12<span class="dot"></span></small></div>
+    <div class="row">DXMT<small>DirectX 11<span class="dot"></span></small></div>
+    <div class="row">DXVK<small>Launchers<span class="dot"></span></small></div>
+    <div class="meter"><strong id="fps">60</strong><span>FPS, held steady</span></div>
+  </div>
+  <div>
+    <h2 data-up>Tuned for each game. <span>Automatically.</span></h2>
+    <p class="lead" data-up>The right engine for every game, MetalFX upscaling for extra frames and a 60 FPS cap that keeps your Mac cool and quiet.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2 data-up>Sit back. <span>Press play.</span></h2>
+  <div class="wide" id="wide"><img id="wideImg" src="assets/flatlay.jpg" alt="Mac and controller on a desk"></div>
+</section>
+
+<section id="faq" class="wrap">
+  <h2 data-up>Questions, answered.</h2>
+  <div class="faq" data-list>
+    <details><summary>Is it really free?</summary><p>Yes. WYNIX is completely free. No trial, no subscription.</p></details>
+    <details><summary>Do I need Windows?</summary><p>No. WYNIX runs Windows games directly on macOS.</p></details>
+    <details><summary>Which Macs are supported?</summary><p>Any Mac with Apple Silicon (M1 or newer) on a recent macOS.</p></details>
+    <details><summary>Does every game work?</summary><p>Most do. Games with kernel level anti-cheat cannot run outside Windows.</p></details>
+  </div>
+</section>
+
+<section id="download" class="wrap end">
+  <h2 data-up>Ready when you are.</h2>
+  <p class="lead" data-up>Free, for every Apple Silicon Mac.</p>
+  <div data-up><a class="btn lg" href="#"><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a></div>
+</section>
+
+<footer><div class="wrap"><span>WYNIX. Not affiliated with Valve or Microsoft.</span><span>Made for Mac</span></div></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(() => {
+  const nav = document.getElementById('nav');
+  addEventListener('scroll', () => nav.classList.toggle('s', scrollY > 8), { passive: true });
+
+  const rows = [...document.querySelectorAll('#engines .row')];
+  let i = 0;
+  setInterval(() => { i = (i + 1) % rows.length; rows.forEach((r, k) => r.classList.toggle('on', k === i)); }, 2600);
+  setInterval(() => { document.getElementById('fps').textContent = Math.random() > .9 ? 59 : 60; }, 1200);
+
+  if (!window.gsap) return;
+  gsap.registerPlugin(ScrollTrigger);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ease = 'expo.out';
+  // reduced motion: same reveals as a short crossfade, no movement
+  const dy = reduce ? 0 : 1;
+
+  if (window.Lenis && !reduce) {
+    const lenis = new Lenis({ autoRaf: false, duration: 1.2 });
+    lenis.on('scroll', ScrollTrigger.update);
+    gsap.ticker.add(t => lenis.raf(t * 1000));
+    gsap.ticker.lagSmoothing(0);
+    document.querySelectorAll('a[href^="#"]').forEach(a => a.addEventListener('click', e => {
+      const h = a.getAttribute('href');
+      if (h.length > 1) { e.preventDefault(); lenis.scrollTo(h, { offset: -72 }); }
+    }));
+  }
+
+  // hero: text settles in with a soft blur, then the photo rises
+  gsap.from('[data-in]', { y: 18 * dy, opacity: 0, filter: 'blur(6px)', duration: 1.4, ease, stagger: .1, delay: .1, clearProps: 'filter' });
+  gsap.from('#shot', { y: 40 * dy, opacity: 0, duration: 1.6, ease, delay: .45 });
+
+  // headings and copy: gentle rise, each on its own
+  gsap.utils.toArray('[data-up]').forEach(el => gsap.from(el, { y: 24 * dy, opacity: 0, duration: 1.3, ease,
+    scrollTrigger: { trigger: el, start: 'top 88%', once: true } }));
+
+  // lists: items arrive one after another
+  gsap.utils.toArray('[data-list]').forEach(l => gsap.from(l.children, { y: 16 * dy, opacity: 0, duration: 1.1, ease, stagger: .09,
+    scrollTrigger: { trigger: l, start: 'top 85%', once: true } }));
+
+  // covers: unmask upward like cards being dealt
+  gsap.from('[data-covers] figure', { clipPath: reduce ? 'inset(0 0 0 0)' : 'inset(100% 0 0 0 round 12px)', opacity: reduce ? 0 : 1, duration: 1.4, ease, stagger: .12,
+    scrollTrigger: { trigger: '[data-covers]', start: 'top 80%', once: true } });
+
+  if (!reduce) {
+    // photos: quiet scroll-linked zoom and drift
+    gsap.fromTo('#heroImg', { scale: 1.08 }, { scale: 1, ease: 'none',
+      scrollTrigger: { trigger: '#shot', start: 'top bottom', end: 'bottom top', scrub: 1 } });
+    gsap.fromTo('#wide', { clipPath: 'inset(0% 6% 0% 6% round 16px)' }, { clipPath: 'inset(0% 0% 0% 0% round 16px)', ease: 'none',
+      scrollTrigger: { trigger: '#wide', start: 'top bottom', end: 'top 35%', scrub: 1 } });
+    gsap.fromTo('#wideImg', { yPercent: -10 }, { yPercent: 0, ease: 'none',
+      scrollTrigger: { trigger: '#wide', start: 'top bottom', end: 'bottom top', scrub: 1 } });
+  }
+})();
+</script>
+</body>
+</html>
