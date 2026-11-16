@@ -475,11 +475,29 @@ final class BottleStore: ObservableObject {
             try? stop.run()
             stop.waitUntilExit()
         }
+        // TERM first so wineserver saves the registry; KILL only leftovers after ~5 s.
+        pkill("-TERM")
+        _ = waitUntil(timeout: 5, step: 0.25) { !windowsProgramsRunning }
+        pkill("-KILL")
+    }
+
+    nonisolated static func pkill(_ signal: String) {
         let kill = Process()
         kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        kill.arguments = ["-KILL", "-f", "Applications/Sikarugir/|Steamy Bottles/"]
+        kill.arguments = [signal, "-f", "Applications/Sikarugir/|Steamy Bottles/"]
         try? kill.run()
         kill.waitUntilExit()
+    }
+
+    /// Polls `done` every `step` seconds up to `timeout`; true if it became true.
+    nonisolated static func waitUntil(timeout: Double, step: Double, _ done: () -> Bool) -> Bool {
+        var waited = 0.0
+        while !done() {
+            if waited >= timeout { return false }
+            Thread.sleep(forTimeInterval: step)
+            waited += step
+        }
+        return true
     }
 
     /// True while any Wine process from a bottle is running.

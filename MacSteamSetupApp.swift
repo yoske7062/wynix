@@ -48,6 +48,7 @@ final class InstallerModel: ObservableObject {
     @Published private(set) var runtimeStatusTitle: String?
 
     private var process: Process?
+    private var pendingPlay: SteamGame?
     private var runtimeProcess: Process?
     private var pendingOutput = ""
     private var statusTimer: AnyCancellable?
@@ -167,6 +168,11 @@ final class InstallerModel: ObservableObject {
 
     /// Starts Steam if needed, then launches the game through `steam -applaunch`.
     func play(_ game: SteamGame) {
+        if process != nil {
+            pendingPlay = game  // one slot, latest wins; runs when the current task ends
+            message = "Starting \(game.name) when Steam is ready…"
+            return
+        }
         message = "Starting \(game.name)…"
         run(mode: "play", arguments: [game.id], changesMainState: false)
     }
@@ -240,6 +246,10 @@ final class InstallerModel: ObservableObject {
                 } else if mode == "setup" {
                     self?.state = .ready
                     self?.phase = L10n.string("phase.complete")
+                }
+                if let next = self?.pendingPlay {
+                    self?.pendingPlay = nil
+                    self?.play(next)
                 }
             }
         }

@@ -6,4 +6,5 @@ step() { local name="$1"; shift; if "$@" >/tmp/wynix-check-$name.log 2>&1; then 
 step build env STEAMY_ADHOC=1 ./build.command
 step tests bash Tests/run.sh
 step updater swift Tests/updater_check.swift
+step bottles bash Tests/bottles_check.sh
 exit $status
