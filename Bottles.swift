@@ -2035,8 +2035,9 @@ struct NewBottleSheet: View {
 struct InstallSheet: View {
     @ObservedObject var store: BottleStore
     @State var bottleID: String?
+    @State var file: URL? = nil
     @Environment(\.dismiss) private var dismiss
-    @State private var file: URL?
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2048,6 +2049,8 @@ struct InstallSheet: View {
                 Spacer()
                 Button("Choose Installer…") { file = store.pickFile(in: nil) ?? file }
             }
+            Text("Or drag a .exe or .msi onto this window.")
+                .font(.app(.caption)).foregroundStyle(.secondary)
             Picker("Install into bottle", selection: $bottleID) {
                 ForEach(store.bottles) { Text($0.name).tag(Optional($0.id)) }
             }
@@ -2069,6 +2072,33 @@ struct InstallSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    .padding(6).allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            WindowsInstallerDrop.load(providers) { file = $0 }
+        }
         .onAppear { if bottleID == nil { bottleID = store.bottles.first?.id } }
+    }
+}
+
+/// Accepts a dropped Windows installer (.exe / .msi) from Finder.
+enum WindowsInstallerDrop {
+    static let extensions: Set<String> = ["exe", "msi"]
+
+    static func isInstaller(_ url: URL) -> Bool { extensions.contains(url.pathExtension.lowercased()) }
+
+    /// Returns true when the drop carries a file; `handler` gets the URL only if it is an installer.
+    @discardableResult
+    static func load(_ providers: [NSItemProvider], handler: @escaping (URL) -> Void) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url, isInstaller(url) else { return }
+            DispatchQueue.main.async { handler(url) }
+        }
+        return true
     }
 }

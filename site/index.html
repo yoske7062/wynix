@@ -95,6 +95,29 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .goal small{color:var(--gray);font-size:13px}
 .perks{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px}
 .perks>div{border:1px solid var(--line);border-radius:var(--r);padding:22px}.perks b{font-weight:600}.perks p{color:var(--gray);font-size:15px;margin-top:6px}
+.app main{position:relative}
+.app .dim{display:none;position:absolute;inset:0;background:rgba(0,0,0,.45);align-items:flex-start;justify-content:center;padding-top:110px;z-index:5}
+.app .dim.on{display:flex}
+.app .dim.clear{background:rgba(0,0,0,.2);padding-top:40px}
+.app .sheet{width:420px;background:#2a2a2c;border:1px solid #3a3a3c;border-radius:12px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:12px;font-size:13px}
+.app .sheet.wide{width:460px}.app .sheet.win{width:440px;max-height:480px;overflow:auto;padding:0 14px 14px;gap:8px}
+.app .sheet h6{font-size:18px;font-weight:700}.app .sheet p{color:#aaa;font-size:13px}
+.app .sheet .row{display:flex;align-items:center;justify-content:space-between;gap:10px}.app .sheet .row.l{justify-content:flex-start}
+.app .mut2{color:#999}.app .cap{font-size:11.5px!important;color:#888!important}
+.app .mb{background:rgba(255,255,255,.12);border-radius:6px;padding:4px 12px;font-size:13px;color:#fff}
+.app .mb.pri{background:#0a64d8}.app .mb[disabled]{opacity:.45;cursor:default}
+.app .pop{background:rgba(255,255,255,.1);border-radius:6px;padding:3px 10px;font-size:13px}
+.app .tf{background:#1e1e1e;border:2px solid #2f6fd6;border-radius:6px;padding:5px 8px;color:#eee;font:inherit;font-size:13px;outline:0}
+.app .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.app .optt{color:#9e9e9e}
+.app .opt{list-style:none;display:grid;gap:8px}.app .opt b{display:block;color:#eee;font-weight:500}.app .opt li{color:#999;font-size:12px}
+.app .wt{position:sticky;top:0;background:#2a2a2c;display:flex;align-items:center;gap:60px;padding:12px 0 8px;font-weight:600;font-size:13px;color:#ddd;z-index:1}
+.app .wt .dots{display:flex;gap:7px}.app .wt .dots i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.app .wt .dots i+i{background:#555}.app .wt .dots i+i+i{background:#555}
+.app .grp{background:#323234;border-radius:8px;padding:4px 12px}.app .grp .row{padding:8px 0;border-bottom:1px solid #3c3c3e}.app .grp .row:last-child{border:0}
+.app .grp .seg{display:flex;background:#3a3a3c;border-radius:6px;padding:2px}.app .grp .seg i{font-style:normal;padding:2px 10px;border-radius:5px;cursor:pointer}.app .grp .seg i.on{background:#0a64d8}
+.app .gh{font-size:13px!important;margin-top:8px}
+.app .help details{border-bottom:1px solid #3c3c3e;padding:8px 0}.app .help details:last-child{border:0}.app .help summary{font-size:13px;cursor:pointer}.app .help p{font-size:12px;margin-top:4px}
+.app .x{align-self:flex-end;margin-top:6px}
 /* app replica */
 .app{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;margin:72px auto 0;display:grid;grid-template-columns:210px 1fr;height:620px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#1e1e1e;text-align:left;font-size:14px}
 .app aside{background:#161616;border-right:1px solid #2a2a2a;padding:14px 10px;display:flex;flex-direction:column;gap:2px}
@@ -255,6 +278,8 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .app main{padding:20px 16px;min-height:460px}
   .app .stores,.app .stores.one,.app .split{grid-template-columns:1fr}
   .app .lib{grid-template-columns:repeat(2,1fr)}
+  .app .sheet,.app .sheet.wide,.app .sheet.win{width:auto;margin:0 10px}
+  .app .dim{padding-top:30px}
   section.wrap{padding-top:80px}
   .why,.bill,.fix,.perks{grid-template-columns:1fr}
   #faq{grid-template-columns:1fr;gap:28px}
@@ -354,30 +379,54 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
           </div>
         </div>
       </div>
-      <div class="v" data-p="exe">
-        <h4>Install from File</h4><p class="d">Any Windows installer. Games, or not.</p>
-        <div class="drop"><b>Drop a .exe or .msi here</b>
-          <div class="files"><span>Notepad++ installer.exe</span><span>Foobar2000 setup.exe</span><span>mod-manager.msi</span></div>
-          <small>WYNIX puts it in a bottle and adds it to your Applications folder like a Mac app.</small>
+      <div class="dim" data-s="exe"><div class="sheet">
+        <h6>Install Software</h6>
+        <div class="row"><span class="mut2" data-file>No installer selected</span><button class="mb" data-pick>Choose Installer…</button></div>
+        <p class="cap">Or drag a .exe or .msi onto this window.</p>
+        <div class="row l"><span>Install into bottle</span><span class="pop">Steam ⌃</span></div>
+        <div class="acts"><button class="mb" data-close>Cancel</button><button class="mb pri" data-close disabled>Install</button></div>
+      </div></div>
+      <div class="dim" data-s="new"><div class="sheet">
+        <h6>New Bottle</h6>
+        <p>Creates a separate Windows 10 environment with its own C: drive, using the Wine engine downloaded during Steam setup.</p>
+        <input class="tf" placeholder="Bottle name">
+        <div class="row l"><span>Engine</span><span class="pop">Wine 10 (stable) ⌃</span></div>
+        <div class="acts"><button class="mb" data-close>Cancel</button><button class="mb pri" data-close>Create</button></div>
+      </div></div>
+      <div class="dim" data-s="opt"><div class="sheet wide">
+        <h6 class="optt">⚡ Optimize for Gaming</h6>
+        <p>✓ All bottles are already optimized. No need to do it again.</p>
+        <ul class="opt">
+          <li><b>MSync on</b>Apple-native thread sync, lowest CPU overhead.</li>
+          <li><b>Real GPU info</b>Games see your actual GPU and VRAM and pick sane presets.</li>
+          <li><b>Standard resolution</b>Renders at point resolution instead of Retina: the biggest FPS gain.</li>
+          <li><b>Exclusive fullscreen</b>Fullscreen games skip the window compositor.</li>
+          <li><b>macOS Game Mode + no App Nap</b>Marks bottles as games so macOS prioritizes them and never throttles them.</li>
+          <li><b>DLSS via MetalFX</b>Games with DLSS get Apple's MetalFX upscaling and frame generation.</li>
+          <li><b>60 FPS cap</b>Games stop at a steady 60 so your Mac stays cooler.</li>
+        </ul>
+        <div class="acts"><button class="mb" data-close>Cancel</button><button class="mb pri" data-close>Optimize</button></div>
+      </div></div>
+      <div class="dim clear" data-s="set"><div class="sheet win">
+        <div class="wt"><span class="dots"><i></i><i></i><i></i></span>WYNIX Settings</div>
+        <div class="grp">
+          <div class="row"><span>Appearance</span><span class="seg"><i class="on">System</i><i>Light</i><i>Dark</i></span></div>
+          <div class="row"><span>Text Size</span><span class="pop">Large ⌃</span></div>
+          <div class="row"><span>Store new bottles on</span><span class="pop">This Mac ⌃</span></div>
+          <label class="row"><span>Game Mode: lower background apps' priority while playing</span><input type="checkbox" checked></label>
+          <label class="row"><span>Show advanced bottle options by default</span><input type="checkbox"></label>
+          <div class="row"><button class="mb" data-close>Show the WYNIX tour again</button></div>
         </div>
-      </div>
-      <div class="v" data-p="new">
-        <h4>New Bottle</h4><p class="d">A separate Windows setup, tuned your way.</p>
-        <div class="form">
-          <label>Name<span class="in">Old games</span></label>
-          <label>Windows version<span class="seg"><i>7</i><i class="on">10</i><i>11</i></span></label>
-          <label>Graphics<span class="seg"><i class="on">Auto</i><i>D3DMetal</i><i>DXMT</i><i>DXVK</i></span></label>
-          <button class="ok">Create</button>
+        <h6 class="gh">Help</h6>
+        <div class="grp help">
+          <details><summary>Home</summary><p>Game stores and your bottles. Press Install on a store once, then Open it and sign in.</p></details>
+          <details><summary>Games</summary><p>Every Steam game you installed. Press Play.</p></details>
+          <details><summary>Bottles</summary><p>A small Windows setup inside WYNIX with its own programs and settings.</p></details>
+          <details><summary>Install from File</summary><p>Runs any Windows installer (.exe or .msi), games or not.</p></details>
+          <details><summary>Boost</summary><p>1600×900 sharpened by MetalFX to your screen at a steady 60 FPS. DirectX 11 games.</p></details>
         </div>
-      </div>
-      <div class="v" data-p="set">
-        <h4>Settings</h4><p class="d">Appearance, text size and where new bottles live.</p>
-        <div class="form"><label>Appearance<span class="seg"><i>Light</i><i class="on">Dark</i><i>Auto</i></span></label><label>Text Size<span class="seg"><i>S</i><i class="on">M</i><i>L</i></span></label><label>Store new bottles on<span class="in">This Mac</span></label></div>
-      </div>
-      <div class="v" data-p="opt">
-        <h4>Optimize</h4><p class="d">One click applies the best settings to every bottle.</p>
-        <div class="drop"><b>All bottles optimized ✓</b><small>Graphics layer, frame cap and Game Mode set per game.</small></div>
-      </div>
+        <button class="mb x" data-close>Close</button>
+      </div></div>
     </main>
   </div>
   <p class="fine" style="margin-top:14px">Interactive preview of the real app. Click around.</p>
@@ -594,7 +643,18 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   app.addEventListener('click', e => {
     const t = e.target.closest('[data-v],[data-go],button,.seg i');
     if (!t) return;
-    if (t.dataset.v || t.dataset.go) return show(t.dataset.v || t.dataset.go);
+    const target = t.dataset.v || t.dataset.go;
+    if (target && ['exe','new','opt','set'].includes(target)) {
+      if (target !== 'set') show('home');
+      app.querySelectorAll('.dim').forEach(d => d.classList.toggle('on', d.dataset.s === target));
+      return;
+    }
+    if (t.matches('[data-close]')) { t.closest('.dim').classList.remove('on'); return; }
+    if (t.matches('[data-pick]')) {
+      const f = app.querySelector('[data-file]'); f.textContent = 'Notepad++ installer.exe'; f.classList.remove('mut2');
+      app.querySelector('.dim[data-s=exe] .pri').disabled = false; return;
+    }
+    if (target) return show(target);
     if (t.matches('.seg i')) { t.parentNode.querySelectorAll('i').forEach(i => i.classList.toggle('on', i === t)); return; }
     if (t.textContent === 'Install') {
       t.textContent = 'Installing…';

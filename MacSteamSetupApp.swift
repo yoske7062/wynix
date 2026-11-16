@@ -436,6 +436,7 @@ struct ContentView: View {
     @State private var showNewBottle = false
     @State private var showInstall = false
     @State private var showOptimize = false
+    @State private var droppedInstaller: URL?
     @AppStorage(Tutorial.doneKey) private var tutorialDone = false
 
     private var selectedBottleID: String? {
@@ -511,6 +512,14 @@ struct ContentView: View {
         }
         .frame(minWidth: 1080, minHeight: 680)
         .onAppear { Updater.shared.start() }
+        // Drag a .exe/.msi anywhere onto the window to open Install Software with it.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            WindowsInstallerDrop.load(providers) { url in
+                droppedInstaller = url
+                showInstall = true
+            }
+        }
+        .onChange(of: showInstall) { _, open in if !open { droppedInstaller = nil } }
         .overlay {
             if !tutorialDone {
                 TutorialOverlay(steps: Tutorial.steps(steamBottle: store.bottles.first?.id),
@@ -533,7 +542,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showOptimize) { OptimizeSheet(store: store) }
         .sheet(isPresented: $showInstall) {
-            InstallSheet(store: store, bottleID: selectedBottleID)
+            InstallSheet(store: store, bottleID: selectedBottleID, file: droppedInstaller)
         }
         .alert("Error", isPresented: Binding(
             get: { store.alertMessage != nil },
