@@ -316,7 +316,8 @@ acquire_setup_lock() {
     /bin/mkdir "$LOCK_DIR"
   fi
   printf '%s\n' "$$" > "$LOCK_DIR/pid"
-  trap 'status=$?; /bin/rm -f "$LOCK_DIR/pid"; /bin/rmdir "$LOCK_DIR" 2>/dev/null || true; exit "$status"' EXIT
+  trap 'status=$?; [[ -z "${CURRENT_PART:-}" ]] || /bin/rm -f "$CURRENT_PART"; /bin/rm -f "$LOCK_DIR/pid"; /bin/rmdir "$LOCK_DIR" 2>/dev/null || true; exit "$status"' EXIT
+  trap 'exit 143' INT TERM  # so the EXIT trap runs and removes the partial download
 }
 
 is_configured() {
@@ -620,11 +621,13 @@ fetch() {
   if [[ ! -s "$destination" ]]; then
     local partial total_bytes=0 curl_pid current_bytes=0 current_percent
     partial="$(/usr/bin/mktemp "${destination}.part.XXXXXX")"
+    CURRENT_PART="$partial"
     total_bytes="$(/usr/bin/curl --fail --silent --show-error --location --head "$url" 2>/dev/null \
       | /usr/bin/awk 'tolower($1) == "content-length:" { value=$2 } END { gsub("\\r", "", value); print value+0 }' || true)"
     if (( total_bytes > 0 )); then
       local free_kb
-      free_kb="$(/bin/df -k "$(dirname "$destination")" | /usr/bin/awk 'NR==2 {print $4+0}')"
+      free_kb="$(/bin/df -k "$(dirname "$destination")" 2>/dev/null | /usr/bin/awk 'NR==2 {print $4+0}' || true)"
+      [[ "$free_kb" =~ ^[0-9]+$ ]] || free_kb=999999999999  # df failed: skip the check
       if (( free_kb < total_bytes / 1024 + 1024 )); then
         /bin/rm -f "$partial"
         fail_key not_enough_space_download "$label"
@@ -653,6 +656,7 @@ fetch() {
     [[ "$(/usr/bin/shasum -a 256 "$partial" | /usr/bin/awk '{print $1}')" == "$expected_sha" ]] \
       || { /bin/rm -f "$partial"; fail_key pinned_download_mismatch "$(basename "$destination")"; }
     /bin/mv -n "$partial" "$destination"
+    CURRENT_PART=""
   fi
   /usr/bin/tar -tf "$destination" >/dev/null 2>&1 \
     || fail_key download_validation_failed "$(basename "$destination")"

@@ -156,6 +156,12 @@ setup_src="$ROOT/Resources/setup.sh"
 [[ "$(/usr/bin/grep -c 'rm -f "\$partial' "$setup_src")" -ge 4 ]] || fail "fetch() must remove its partial file on every failure"
 /usr/bin/grep -q 'rm -f "\$partial_setup"; fail_key download_failed "Steam"' "$setup_src" || fail "Steam installer download must clean up and fail_key"
 /usr/bin/grep -q 'not_enough_space_download' "$setup_src" || fail "fetch() must check free disk space"
+/usr/bin/grep -q 'rm -f "\$CURRENT_PART"' "$setup_src" && /usr/bin/grep -q "trap 'exit 143' INT TERM" "$setup_src" || fail "EXIT trap must remove the partial download, INT/TERM must exit"
+/usr/bin/grep -q 'df failed: skip the check' "$setup_src" || fail "df failure must skip the space check"
+# Behavior: killed by TERM, the trap pattern removes the partial file.
+tmp_part="$(/usr/bin/mktemp)"
+CP="$tmp_part" /bin/bash -c 'trap '"'"'status=$?; /bin/rm -f "$CP"; exit "$status"'"'"' EXIT; trap "exit 143" INT TERM; kill -TERM $$; sleep 1' || true
+[[ ! -e "$tmp_part" ]] || fail "TERM trap pattern left the partial file"
 
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"

@@ -327,10 +327,11 @@ final class BottleStore: ObservableObject {
     func reload() {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: Self.root, includingPropertiesForKeys: nil)) ?? []
-        bottles = urls.filter { $0.pathExtension == "app" }
+        let list = urls.filter { $0.pathExtension == "app" }
             .map(Bottle.init(url:))
             .filter { fm.isExecutableFile(atPath: $0.wine.path) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if list != bottles { bottles = list }  // no redraw on every app activation
     }
 
     // MARK: Programs
@@ -530,6 +531,7 @@ final class BottleStore: ObservableObject {
         guard FileManager.default.fileExists(atPath: bottle.url.path) else {
             reload()
             alertMessage = "\(bottle.name) is no longer in the Sikarugir folder. It may have been deleted or moved."
+            completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
         clearSteamAutorun(bottle)
@@ -883,13 +885,17 @@ final class BottleStore: ObservableObject {
         task.standardError = pipe
         // Drain while running: a full 64 KB pipe would block the child forever.
         let collected = LockedData()
+        let order = NSLock()  // a handler in flight finishes before the final drain, so output stays in order
         pipe.fileHandleForReading.readabilityHandler = { handle in
+            order.lock(); defer { order.unlock() }
             let data = handle.availableData
             if !data.isEmpty { collected.append(data) }
         }
         task.terminationHandler = { finished in
+            order.lock()
             pipe.fileHandleForReading.readabilityHandler = nil
             collected.append(pipe.fileHandleForReading.readDataToEndOfFile())
+            order.unlock()
             let output = String(decoding: collected.data, as: UTF8.self)
             DispatchQueue.main.async { completion?(finished.terminationStatus, output) }
         }

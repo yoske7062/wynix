@@ -27,6 +27,9 @@ enum L10n { static func string(_ k: String) -> String { k } }
         precondition(GameModeSafety.mode60Index(current: (2560, 1440, 60), modes: modes) == nil)
         precondition(GameModeSafety.mode60Index(current: (3000, 2000, 120), modes: modes) == nil)
         let app = (try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? ""
+        let src = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
+        precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")
+        precondition(src.contains("if list != bottles"), "reload must not republish an unchanged list")
         precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
         let locked = LockedData()
         DispatchQueue.concurrentPerform(iterations: 50) { _ in locked.append(Data(count: 10)) }
