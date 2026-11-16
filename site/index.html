@@ -118,6 +118,23 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .app .gh{font-size:13px!important;margin-top:8px}
 .app .help details{border-bottom:1px solid #3c3c3e;padding:8px 0}.app .help details:last-child{border:0}.app .help summary{font-size:13px;cursor:pointer}.app .help p{font-size:12px;margin-top:4px}
 .app .x{align-self:flex-end;margin-top:6px}
+.dpanel{position:relative;overflow:hidden;border:1px solid color-mix(in oklch,#E05A83 35%,var(--line));border-radius:var(--r);padding:56px 48px;
+  background:radial-gradient(60% 80% at 85% 0%,rgba(224,90,131,.22),transparent 70%),radial-gradient(50% 70% at 0% 100%,rgba(224,90,131,.12),transparent 70%),linear-gradient(180deg,#17121a,#111214)}
+.dpanel::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:36px 36px;mask:radial-gradient(70% 70% at 80% 20%,#000,transparent)}
+.dpanel>*{position:relative}
+.dgrid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:36px}
+.room{border-radius:var(--r);padding:28px;background:linear-gradient(160deg,rgba(224,90,131,.16),rgba(224,90,131,.04) 60%);border:1px solid rgba(224,90,131,.35)}
+.room h3{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 8px}.room p{color:#cfcfd4}
+.chip{display:inline-block;font-size:12px;letter-spacing:.04em;color:#fff;background:#E05A83;border-radius:99px;padding:3px 10px}
+.flow{list-style:none;display:grid;gap:10px;margin-top:20px;padding:0}
+.flow li{display:flex;align-items:center;gap:12px;color:var(--ink)}
+.flow i{font-style:normal;flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:600;background:#E05A83;color:#fff;box-shadow:0 0 16px rgba(224,90,131,.5)}
+.side{display:flex;flex-direction:column;gap:16px}
+.side .goal{margin:0;max-width:none;display:flex;flex-direction:column;gap:6px}
+.side .perks{grid-template-columns:1fr 1fr;margin:0}
+.goal .bar i{min-width:6px;background:linear-gradient(90deg,#c94470,#ffd3e0,#e05a83);background-size:200% 100%;animation:shine 3s linear infinite}
+.dbtn{margin-top:32px;background:#E05A83!important;color:#fff!important;box-shadow:0 0 30px rgba(224,90,131,.45)}
+.dbtn:hover{background:#ec6e95!important}
 /* app replica */
 .app{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;margin:72px auto 0;display:grid;grid-template-columns:210px 1fr;height:620px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#1e1e1e;text-align:left;font-size:14px}
 .app aside{background:#161616;border-right:1px solid #2a2a2a;padding:14px 10px;display:flex;flex-direction:column;gap:2px}
@@ -281,7 +298,8 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .app .sheet,.app .sheet.wide,.app .sheet.win{width:auto;margin:0 10px}
   .app .dim{padding-top:30px}
   section.wrap{padding-top:80px}
-  .why,.bill,.fix,.perks{grid-template-columns:1fr}
+  .why,.bill,.fix,.perks,.dgrid,.side .perks{grid-template-columns:1fr}
+  .dpanel{padding:36px 20px}
   #faq{grid-template-columns:1fr;gap:28px}
   .faqhead{position:static}
   .why div,.why div:not(:nth-child(3n+1)){padding:24px 0;border-left:0}
@@ -568,20 +586,37 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 </section>
 
 <section id="donate" class="wrap">
-  <h2 data-up>Free forever. <span>Donations keep it <em class="acc">alive</em>.</span></h2>
-  <p class="lead" data-up>WYNIX will never have a paywall, a trial or ads. If it saved you $99 a year, consider tipping a few of them back. It's 100% optional, and everyone gets the same app.</p>
-  <div class="goal" data-up>
-    <div><b>First goal: kill the "not safe" warning</b><span>Apple charges $99/year to notarize Mac apps. Once we hit it, macOS stops warning everyone who downloads WYNIX.</span></div>
-    <div class="bar"><i style="width:0%"></i></div>
-    <small>$0 of $99 raised</small>
+  <div class="dpanel">
+  <h2 data-up>Free forever. <span>Supporters <em class="acc">build it with us</em>.</span></h2>
+  <p class="lead" data-up>WYNIX will never have a paywall, a trial or ads. Donating is optional and everyone gets the same app. What supporters get is a <b>say in what we build next</b>.</p>
+
+  <div class="dgrid">
+    <div class="room" data-up>
+      <span class="chip">Supporters only</span>
+      <h3>The Supporters Room</h3>
+      <p>A private channel where you talk directly with the developer. Suggest features, report what breaks, vote on the next games to test. When your idea ships, the changelog says so.</p>
+      <ol class="flow">
+        <li><i>1</i>Donate any amount</li>
+        <li><i>2</i>Get your invite to the room</li>
+        <li><i>3</i>Share an idea or vote</li>
+        <li><i>4</i>See it inside WYNIX, with your name on it</li>
+      </ol>
+    </div>
+    <div class="side">
+      <div class="goal" data-up>
+        <b>First goal: kill the "not safe" warning</b>
+        <span>Apple charges $99/year to notarize Mac apps. Once we hit it, macOS stops warning everyone who downloads WYNIX.</span>
+        <div class="bar"><i style="width:0%"></i></div>
+        <small>$0 of $99 raised</small>
+      </div>
+      <div class="perks" data-list>
+        <div><b>Your name in the app</b><p>On the Supporters list inside WYNIX and on this page.</p></div>
+        <div><b>Early builds</b><p>New versions before everyone else.</p></div>
+      </div>
+    </div>
   </div>
-  <div class="perks" data-list>
-    <div><b>Your name in the app</b><p>Every supporter goes on the Supporters list inside WYNIX and on this page.</p></div>
-    <div><b>Pick the next games</b><p>Supporters vote on which games we test, tune and fix next.</p></div>
-    <div><b>Early builds</b><p>Try new versions before everyone else and tell us what breaks.</p></div>
+  <a class="btn lg dbtn" id="donateBtn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" data-up>Support WYNIX on Ko-fi</a>
   </div>
-  <!-- TODO owner: replace with your real Ko-fi page once created -->
-  <a class="btn lg" id="donateBtn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" data-up style="margin-top:36px">Support WYNIX</a>
 </section>
 
 <section id="download" class="wrap end">
