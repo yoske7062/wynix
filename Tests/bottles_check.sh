@@ -5,4 +5,4 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${TMPDIR:-/tmp}/bottles_check"
 /usr/bin/swiftc -swift-version 5 -parse-as-library -framework SwiftUI -framework AppKit \
   "$ROOT/Bottles.swift" "$ROOT/Tests/bottles_check.swift" -o "$OUT"
-"$OUT" "${1:-$HOME/Applications/Sikarugir/Steam.app}" "$ROOT/MacSteamSetupApp.swift"
+"$OUT" "${1:-$HOME/Applications/Sikarugir/Steam.app}" "$ROOT/MacSteamSetupApp.swift" "$ROOT/Bottles.swift"

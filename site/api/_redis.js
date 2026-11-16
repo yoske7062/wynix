@@ -16,4 +16,15 @@ async function pipeline(commands) {
 const day = (d = new Date()) => d.toISOString().slice(0, 10);
 const clean = (s, max = 40) => String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, max);
 
-module.exports = { pipeline, day, clean };
+// Abuse limits. Vercel sets x-real-ip from the real connection (clients can't spoof it).
+// Only a truncated SHA-256 of the IP is stored, and every key expires within the hour.
+const ipKey = req => require('crypto').createHash('sha256')
+  .update(String(req.headers['x-real-ip'] || 'unknown')).digest('hex').slice(0, 16);
+
+// Adds 1 to a counter that lives `ttl` seconds; returns the new count, or null if storage is down.
+async function hit(key, ttl = 3600) {
+  const r = await pipeline([['SET', key, 0, 'EX', ttl, 'NX'], ['INCR', key]]);
+  return r ? Number(r[1]) : null;
+}
+
+module.exports = { pipeline, day, clean, ipKey, hit };

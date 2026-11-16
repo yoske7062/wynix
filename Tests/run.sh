@@ -151,6 +151,12 @@ steam_disable_autorun "$reg_dir/user.reg"
 /usr/bin/grep -q '^"Language"="english"' "$reg_dir/user.reg" || fail "other Steam values must stay"
 /bin/rm -rf "$reg_dir"
 
+# Failed downloads must not leave .part files, and fetch() checks free space first.
+setup_src="$ROOT/Resources/setup.sh"
+[[ "$(/usr/bin/grep -c 'rm -f "\$partial' "$setup_src")" -ge 4 ]] || fail "fetch() must remove its partial file on every failure"
+/usr/bin/grep -q 'rm -f "\$partial_setup"; fail_key download_failed "Steam"' "$setup_src" || fail "Steam installer download must clean up and fail_key"
+/usr/bin/grep -q 'not_enough_space_download' "$setup_src" || fail "fetch() must check free disk space"
+
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"
 bash "$ROOT/Tests/localization.sh"

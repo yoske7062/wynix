@@ -59,7 +59,7 @@ b{color:var(--ink);font-weight:500}
 <p>When WYNIX opens, and every 6 hours while open, it asks our server if there's a new version. That request includes a <b>random install ID</b> (made up on your Mac the first time it runs, not linked to you) and the <b>app version number</b>. We use it only to count how many people use WYNIX and which versions are in use. The app does not send your name, email, files, list of games, or anything about what you play.</p>
 <h3>Downloads and the website</h3>
 <ul>
-<li>When you download WYNIX we count the download and the <b>country</b> it came from (from our hosting provider's network data). We don't store your IP address.</li>
+<li>When you download WYNIX we count the download and the <b>country</b> it came from (from our hosting provider's network data). We don't store your IP address. To stop abuse (someone inflating the counter in a loop), we keep a one-way hash of it for at most one hour, then it's deleted.</li>
 <li>The website uses <b>Vercel Web Analytics</b>, which counts page visits without cookies.</li>
 </ul>
 <h3>What third parties see</h3>

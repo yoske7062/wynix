@@ -622,6 +622,14 @@ fetch() {
     partial="$(/usr/bin/mktemp "${destination}.part.XXXXXX")"
     total_bytes="$(/usr/bin/curl --fail --silent --show-error --location --head "$url" 2>/dev/null \
       | /usr/bin/awk 'tolower($1) == "content-length:" { value=$2 } END { gsub("\\r", "", value); print value+0 }' || true)"
+    if (( total_bytes > 0 )); then
+      local free_kb
+      free_kb="$(/bin/df -k "$(dirname "$destination")" | /usr/bin/awk 'NR==2 {print $4+0}')"
+      if (( free_kb < total_bytes / 1024 + 1024 )); then
+        /bin/rm -f "$partial"
+        fail_key not_enough_space_download "$label"
+      fi
+    fi
     /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial" "$url" &
     curl_pid=$!
     while /bin/kill -0 "$curl_pid" 2>/dev/null; do
@@ -637,12 +645,13 @@ fetch() {
       /bin/sleep 0.25
     done
     if ! wait "$curl_pid"; then
+      /bin/rm -f "$partial"
       fail_key download_failed "$label"
     fi
     /usr/bin/tar -tf "$partial" >/dev/null 2>&1 \
-      || fail_key download_validation_failed "$(basename "$destination")"
+      || { /bin/rm -f "$partial"; fail_key download_validation_failed "$(basename "$destination")"; }
     [[ "$(/usr/bin/shasum -a 256 "$partial" | /usr/bin/awk '{print $1}')" == "$expected_sha" ]] \
-      || fail_key pinned_download_mismatch "$(basename "$destination")"
+      || { /bin/rm -f "$partial"; fail_key pinned_download_mismatch "$(basename "$destination")"; }
     /bin/mv -n "$partial" "$destination"
   fi
   /usr/bin/tar -tf "$destination" >/dev/null 2>&1 \
@@ -688,8 +697,9 @@ if ! steam_install_is_complete; then
   [[ ! -d "$STEAM_SETUP" ]] || fail_key unsafe_steam_setup_directory
   if ! steam_setup_is_valid "$STEAM_SETUP"; then
     partial_setup="$(/usr/bin/mktemp "${STEAM_SETUP}.part.XXXXXX")"
-    /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial_setup" "$STEAM_URL"
-    steam_setup_is_valid "$partial_setup" || fail_key steam_setup_validation_failed
+    /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial_setup" "$STEAM_URL" \
+      || { /bin/rm -f "$partial_setup"; fail_key download_failed "Steam"; }
+    steam_setup_is_valid "$partial_setup" || { /bin/rm -f "$partial_setup"; fail_key steam_setup_validation_failed; }
     /bin/mv "$partial_setup" "$STEAM_SETUP"
   fi
   printf '@@ACTION|steam_installer\n'

@@ -52,13 +52,19 @@ final class Updater: ObservableObject {
             guard let (data, response) = try? await URLSession.shared.data(for: request),
                   (response as? HTTPURLResponse)?.statusCode == 200,
                   let release = try? JSONDecoder().decode(Release.self, from: data) else { return }
-            available = release.build > currentBuild ? release : nil
+            available = release.build > currentBuild && Self.isTrusted(release.url) ? release : nil
         }
     }
 
     func download() {
-        guard let release = available else { return }
+        guard let release = available, Self.isTrusted(release.url) else { return }
         NSWorkspace.shared.open(release.url)
+    }
+
+    /// Only open download links on our own site over HTTPS, so a tampered feed
+    /// can't send users to a look-alike download.
+    nonisolated static func isTrusted(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host == "wynix.vercel.app" && url.user == nil && url.port == nil
     }
 }
 

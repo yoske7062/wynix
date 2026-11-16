@@ -178,6 +178,7 @@ final class InstallerModel: ObservableObject {
     }
 
     func createShortcut(for game: SteamGame) {
+        guard process == nil else { shortcutMessage = "Busy right now. Try again in a moment."; return }
         shortcutMessage = L10n.format("shortcut.creating", game.name)
         run(mode: "create-shortcut", arguments: [game.id], changesMainState: false)
     }

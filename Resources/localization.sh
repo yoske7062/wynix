@@ -103,6 +103,8 @@ ui_text() {
     en:unsafe_download_path) format='The download path is unsafe: %s' ;;
     ko:download_failed) format='다운로드에 실패했습니다: %s' ;;
     en:download_failed) format='Download failed: %s' ;;
+    ko:not_enough_space_download) format='디스크 공간이 부족해 다운로드할 수 없습니다: %s. 공간을 확보한 뒤 다시 시도해 주세요' ;;
+    en:not_enough_space_download) format='Not enough disk space to download %s. Free some space and try again' ;;
     ko:download_validation_failed) format='다운로드 파일 검증에 실패했습니다: %s' ;;
     en:download_validation_failed) format='Downloaded-file validation failed: %s' ;;
     ko:pinned_download_mismatch) format='다운로드 파일의 고정 버전 검증에 실패했습니다: %s' ;;

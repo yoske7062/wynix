@@ -291,6 +291,14 @@ enum RegistryFile {
 
 // MARK: - Store
 
+/// Output collected from a child process on a background queue.
+final class LockedData: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    func append(_ d: Data) { lock.lock(); buffer.append(d); lock.unlock() }
+    var data: Data { lock.lock(); defer { lock.unlock() }; return buffer }
+}
+
 @MainActor
 final class BottleStore: ObservableObject {
     static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Sikarugir")
@@ -308,7 +316,13 @@ final class BottleStore: ObservableObject {
         let proceed: () -> Void
     }
 
-    init() { reload() }
+    init() {
+        reload()
+        // A bottle deleted or added in Finder while the app was in the background: one directory listing.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
+    }
 
     func reload() {
         let fm = FileManager.default
@@ -446,8 +460,9 @@ final class BottleStore: ObservableObject {
     func install(_ file: URL, in bottle: Bottle) {
         guarded(file, in: bottle) { [weak self] in
             self?.activity = "Installing \(file.lastPathComponent) into \(bottle.name)…"
-            self?.launcher(bottle, ["WSS-installer", file.path]) { _, _ in
+            self?.launcher(bottle, ["WSS-installer", file.path]) { status, output in
                 self?.activity = nil
+                if status != 0 { self?.alertMessage = "\(file.lastPathComponent) did not finish installing:\n\(output.suffix(400))" }
                 self?.scanPrograms(bottle)
             }
         }
@@ -512,6 +527,11 @@ final class BottleStore: ObservableObject {
     }
 
     func launcher(_ bottle: Bottle, _ arguments: [String], completion: ((Int32, String) -> Void)? = nil) {
+        guard FileManager.default.fileExists(atPath: bottle.url.path) else {
+            reload()
+            alertMessage = "\(bottle.name) is no longer in the Sikarugir folder. It may have been deleted or moved."
+            return
+        }
         clearSteamAutorun(bottle)
         spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
     }
@@ -861,8 +881,16 @@ final class BottleStore: ObservableObject {
         task.currentDirectoryURL = executable.deletingLastPathComponent()
         task.standardOutput = pipe
         task.standardError = pipe
+        // Drain while running: a full 64 KB pipe would block the child forever.
+        let collected = LockedData()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty { collected.append(data) }
+        }
         task.terminationHandler = { finished in
-            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            pipe.fileHandleForReading.readabilityHandler = nil
+            collected.append(pipe.fileHandleForReading.readDataToEndOfFile())
+            let output = String(decoding: collected.data, as: UTF8.self)
             DispatchQueue.main.async { completion?(finished.terminationStatus, output) }
         }
         do {
@@ -1005,9 +1033,15 @@ final class BottleStore: ObservableObject {
             do {
                 if let real = Self.storedURL(of: bottle) {
                     let renamed = real.deletingLastPathComponent().appendingPathComponent(name + ".app")
+                    // New link first: if it fails, move the bottle back; the old link goes last.
                     try FileManager.default.moveItem(at: real, to: renamed)
-                    try FileManager.default.removeItem(at: bottle.url)
-                    try FileManager.default.createSymbolicLink(at: target, withDestinationURL: renamed)
+                    do {
+                        try FileManager.default.createSymbolicLink(at: target, withDestinationURL: renamed)
+                    } catch {
+                        try? FileManager.default.moveItem(at: renamed, to: real)
+                        throw error
+                    }
+                    try? FileManager.default.removeItem(at: bottle.url)
                 } else {
                     try FileManager.default.moveItem(at: bottle.url, to: target)
                 }

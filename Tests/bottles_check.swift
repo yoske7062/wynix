@@ -28,6 +28,11 @@ enum L10n { static func string(_ k: String) -> String { k } }
         precondition(GameModeSafety.mode60Index(current: (3000, 2000, 120), modes: modes) == nil)
         let app = (try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? ""
         precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
+        let locked = LockedData()
+        DispatchQueue.concurrentPerform(iterations: 50) { _ in locked.append(Data(count: 10)) }
+        precondition(locked.data.count == 500, "LockedData lost bytes")
+        let store = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
+        precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
         let path = CommandLine.arguments[1]
         guard FileManager.default.fileExists(atPath: path) else { print("SKIP: no bottle at \(path)"); return }
         let root = URL(fileURLWithPath: path)
