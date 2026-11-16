@@ -675,6 +675,7 @@ struct GameCoverCard: View {
             }
             .buttonStyle(.plain)
             .disabled(disabled)
+            .accessibilityLabel(starting ? "Starting \(name)" : "Play \(name)")
             .padding(12)
         }
         .aspectRatio(2/3, contentMode: .fit)
@@ -924,6 +925,7 @@ struct GameIconView: View {
                 Image(systemName: "gamecontroller.fill")
                     .font(.app(.title2))
                     .foregroundStyle(.blue)
+                    .accessibilityLabel("Game icon")
             }
         }
         .frame(width: 40, height: 40)
@@ -940,6 +942,7 @@ struct StatusCard: View {
             Image(systemName: model.state == .ready ? "checkmark.circle.fill" : "externaldrive.fill")
                 .font(.system(size: 30))
                 .foregroundStyle(model.state == .ready ? .green : .blue)
+                .accessibilityLabel(model.state == .ready ? "Ready" : "Not ready")
                 .frame(width: 58, height: 58)
                 .background(
                     (model.state == .ready ? Color.green : Color.blue).opacity(0.11),

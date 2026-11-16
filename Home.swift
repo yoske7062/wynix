@@ -34,7 +34,7 @@ struct HomeView: View {
                 }
 
                 HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
                     TextField("Search stores, launchers and your bottles", text: $search)
                         .textFieldStyle(.plain)
                 }
@@ -146,7 +146,7 @@ struct CatalogCard: View {
                 if let logo, let image = BrandLogo.image(logo) {
                     Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(10)
                 } else {
-                    Image(systemName: icon).font(.app(.title2))
+                    Image(systemName: icon).font(.app(.title2)).accessibilityHidden(true)
                 }
             }
             .foregroundStyle(logo == nil ? Color.steamyAccent : .white)

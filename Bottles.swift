@@ -1281,6 +1281,8 @@ struct BottleView: View {
                             ForEach(programs) { program in
                                 ProgramTile(program: program, opening: openingID == program.id)
                                     .onTapGesture(count: 2) { launch(program) }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityAction(named: "Open") { launch(program) }
                                     .contextMenu {
                                         Button("Open") { launch(program) }
                                         Button("Add to Launchpad (Mac App)") {
@@ -1393,6 +1395,8 @@ struct ProgramTile: View {
         .frame(width: 130)
         .contentShape(Rectangle())
         .help(program.path)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(opening ? "\(program.name), opening" : program.name)
     }
 }
 
@@ -2030,6 +2034,8 @@ struct DLLOverridesSheet: View {
                             store.setRegistry(bottle, key: key, name: name, value: nil)
                         } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless)
+                        .help("Remove override")
+                        .accessibilityLabel("Remove override for \(name)")
                     }
                 }
             }
