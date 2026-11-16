@@ -316,7 +316,7 @@ acquire_setup_lock() {
     /bin/mkdir "$LOCK_DIR"
   fi
   printf '%s\n' "$$" > "$LOCK_DIR/pid"
-  trap 'status=$?; [[ -z "${CURRENT_PART:-}" ]] || /bin/rm -f "$CURRENT_PART"; /bin/rm -f "$LOCK_DIR/pid"; /bin/rmdir "$LOCK_DIR" 2>/dev/null || true; exit "$status"' EXIT
+  trap 'status=$?; [[ -z "${CURL_PID:-}" ]] || /bin/kill "$CURL_PID" 2>/dev/null; [[ -z "${CURRENT_PART:-}" ]] || /bin/rm -f "$CURRENT_PART"; /bin/rm -f "$LOCK_DIR/pid"; /bin/rmdir "$LOCK_DIR" 2>/dev/null || true; exit "$status"' EXIT
   trap 'exit 143' INT TERM  # so the EXIT trap runs and removes the partial download
 }
 
@@ -634,7 +634,7 @@ fetch() {
       fi
     fi
     /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial" "$url" &
-    curl_pid=$!
+    curl_pid=$!; CURL_PID="$curl_pid"
     while /bin/kill -0 "$curl_pid" 2>/dev/null; do
       current_bytes="$(/usr/bin/stat -f %z "$partial" 2>/dev/null || printf '0')"
       if (( total_bytes > 0 )); then
@@ -656,7 +656,7 @@ fetch() {
     [[ "$(/usr/bin/shasum -a 256 "$partial" | /usr/bin/awk '{print $1}')" == "$expected_sha" ]] \
       || { /bin/rm -f "$partial"; fail_key pinned_download_mismatch "$(basename "$destination")"; }
     /bin/mv -n "$partial" "$destination"
-    CURRENT_PART=""
+    CURRENT_PART=""; CURL_PID=""
   fi
   /usr/bin/tar -tf "$destination" >/dev/null 2>&1 \
     || fail_key download_validation_failed "$(basename "$destination")"
