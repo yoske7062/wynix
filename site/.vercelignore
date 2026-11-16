@@ -3,3 +3,5 @@ motion.js
 motion.css
 .claude
 og-src
+.env*
+.vercel

@@ -3,3 +3,4 @@ build/
 *.log
 .claude/
 site/.vercel/
+.env*
