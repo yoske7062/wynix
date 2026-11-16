@@ -121,6 +121,9 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .dnote{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:center}
 .dlist{list-style:none;padding:0;margin-top:22px;display:grid;gap:14px;max-width:58ch;color:var(--gray)}
 .dlist b{color:var(--ink);font-weight:500}
+.pk{color:#E05A83!important}
+.dlist li{padding-left:18px;position:relative}.dlist li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:6px;border-radius:50%;background:#E05A83}
+.dbar{background:rgba(224,90,131,.18)!important}
 .dgoal{margin-top:26px;color:var(--gray);max-width:58ch}.dgoal b{color:var(--ink);font-weight:500}
 .dbar{display:block;height:4px;background:var(--line);border-radius:99px;margin:12px 0 6px;overflow:hidden}.dbar i{display:block;height:100%;background:#E05A83}
 .dgoal small{font-size:13px}
@@ -580,14 +583,14 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 <section id="donate" class="wrap">
   <div class="dnote">
     <div class="dtext">
-      <h2 data-up>Free forever. <span>Built with the people who use it.</span></h2>
+      <h2 data-up>Free forever. <span>Built with <em class="acc">the people who use it</em>.</span></h2>
       <p class="lead" data-up>I'm a student building WYNIX on my own. It will never have a paywall, a trial or ads, and everyone gets the same app. If you want to chip in, here's what it does:</p>
       <ul class="dlist" data-up>
-        <li><b>You get a seat at the table.</b> Supporters join a private room where they talk with me directly, suggest features and vote on the next games I test. When your idea ships, the changelog says it was yours.</li>
+        <li><b>You get a seat at the table.</b> Donate <b class="pk">$5 or more</b> and you join a private room where they talk with me directly, suggest features and vote on the next games I test. When your idea ships, the changelog says it was yours.</li>
         <li><b>Your name goes in the app,</b> on the Supporters list.</li>
         <li><b>You get early builds</b> before everyone else.</li>
       </ul>
-      <p class="dgoal" data-up>First goal: <b>$99</b> for Apple's developer account, so macOS stops calling WYNIX "not safe". <span class="dbar"><i style="width:0%"></i></span> <small>$0 so far</small></p>
+      <p class="dgoal" data-up>First goal: <b class="pk">$99</b> for Apple's developer account, so macOS stops calling WYNIX "not safe". <span class="dbar"><i style="width:0%"></i></span> <small>$0 so far</small></p>
       <a class="btn lg" id="donateBtn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" data-up>Support on Ko-fi</a>
     </div>
     <figure class="paper" data-up><img src="assets/thanks-note.png" alt="Hand-drawn note: Thanks for your support, WYNIX" loading="lazy" width="860" height="360"></figure>
