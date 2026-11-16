@@ -1,1 +1,1 @@
-{"version":"0.16","build":16,"url":"https://wynix.vercel.app/downloads/WYNIX.dmg","notes":"Drag a .exe or .msi onto WYNIX to install it."}
+{"version":"0.17","build":17,"url":"https://wynix.vercel.app/api/dl","notes":"Anonymous install count for update checks."}

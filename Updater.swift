@@ -7,7 +7,21 @@ import AppKit
 @MainActor
 final class Updater: ObservableObject {
     static let shared = Updater()
-    static let feed = URL(string: "https://wynix.vercel.app/version.json")!
+    static let feedBase = "https://wynix.vercel.app/api/version"
+
+    /// Random ID created on first launch. Lets us count installs without knowing who you are.
+    static var installID: String {
+        if let id = UserDefaults.standard.string(forKey: "installID") { return id }
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: "installID")
+        return id
+    }
+
+    var feed: URL {
+        var c = URLComponents(string: Self.feedBase)!
+        c.queryItems = [URLQueryItem(name: "id", value: Self.installID), URLQueryItem(name: "v", value: String(currentBuild))]
+        return c.url!
+    }
 
     struct Release: Decodable {
         let version: String
@@ -32,7 +46,7 @@ final class Updater: ObservableObject {
     }
 
     func check() {
-        var request = URLRequest(url: Self.feed, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        var request = URLRequest(url: feed, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("WYNIX/\(currentBuild)", forHTTPHeaderField: "User-Agent")
         Task {
             guard let (data, response) = try? await URLSession.shared.data(for: request),

@@ -296,6 +296,7 @@ struct SettingsView: View {
                 HelpItem("Optimize", "Applies the best settings to your bottles in one click: graphics layer, frame cap and Mac shortcuts.")
                 HelpItem("Boost", "Run the game at 1600×900 and MetalFX sharpens it to your screen at a steady 60 FPS. DirectX 11 games only.")
                 HelpItem("Graphics layer", "D3DMetal for DirectX 12, DXMT for DirectX 11, DXVK for launchers. Auto picks for you; change it in a bottle's advanced options if a game looks wrong.")
+                HelpItem("Privacy", "When WYNIX checks for updates it sends a random install ID and the app version. Nothing else: no name, no email, no games list. It only lets us count how many people use WYNIX.")
                 HelpItem("Something not working?", "Open the bottle and press Something Not Working. It closes everything in that bottle and restarts it. Games with kernel anti-cheat (Valorant, Fortnite, many shooters) won't run.")
             }
         }
