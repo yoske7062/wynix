@@ -543,6 +543,9 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
+        if upscaleDX12(bottle) && !ensureUpscaler() {  // a missing injected dylib would abort Wine
+            setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
+        }
         afterSteamAutorunOff(bottle) { [self] in
             spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
         }
@@ -1020,25 +1023,35 @@ final class BottleStore: ObservableObject {
     /// EmulateModeset keeps the monitor at its native mode when the game picks 1600x900.
     func upscaleDX12(_ bottle: Bottle) -> Bool { flag(bottle, "WynixUpscaleDX12") }
 
-    func setUpscaleDX12(_ bottle: Bottle, _ on: Bool) {
-        // Copied into the bottle: the export line is unquoted and DYLD_INSERT_LIBRARIES is
-        // colon-separated, so the app's own path (e.g. "C:WORK1.0") can't be used directly.
-        let dest = bottle.contents.appendingPathComponent("Frameworks/wynix_upscale.dylib")
-        if on && boost(bottle) { setBoost(bottle, false) }  // Boost's DXMT already upscales
-        if on {
-            guard let src = Bundle.main.url(forResource: "wynix_upscale", withExtension: "dylib") else {
-                alertMessage = "DirectX 12 Boost is missing from this copy of WYNIX."
-                return
-            }
-            do {
-                try? FileManager.default.removeItem(at: dest)
-                try FileManager.default.copyItem(at: src, to: dest)
-            } catch {
-                alertMessage = error.localizedDescription
-                return
-            }
+    /// Fixed path with no spaces or colons: the bottle's export line is unquoted and
+    /// DYLD_INSERT_LIBRARIES is colon-separated. dyld kills the process if this file is
+    /// missing, so it is re-copied before every launch from a bottle that uses it.
+    static let upscalerPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".wynix/wynix_upscale.dylib")
+
+    @discardableResult
+    func ensureUpscaler() -> Bool {
+        guard let src = Bundle.main.url(forResource: "wynix_upscale", withExtension: "dylib") else { return false }
+        let dest = Self.upscalerPath, fm = FileManager.default
+        if fm.contentsEqual(atPath: src.path, andPath: dest.path) { return true }
+        do {
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: dest)
+            try fm.copyItem(at: src, to: dest)
+            removexattr(dest.path, "com.apple.quarantine", 0)
+            return true
+        } catch {
+            return false
         }
-        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? dest.path : nil)
+    }
+
+    func setUpscaleDX12(_ bottle: Bottle, _ on: Bool) {
+        if on && boost(bottle) { setBoost(bottle, false) }  // Boost's DXMT already upscales
+        if on && !ensureUpscaler() {
+            alertMessage = "DirectX 12 Boost could not be installed from this copy of WYNIX."
+            return
+        }
+        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? Self.upscalerPath.path : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", on ? String(format: "%.2f", Self.boostFactor) : nil)
         setRegistry(bottle, key: "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver", name: "EmulateModeset", value: on ? "y" : nil)

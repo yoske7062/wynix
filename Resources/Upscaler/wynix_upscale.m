@@ -24,8 +24,11 @@
 #import <MetalFX/MetalFX.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#include <dlfcn.h>
 
 static BOOL gLog, gAnyLayer, gDisabled;
+static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
 static double gScale = 1.6;
 static IMP gOrigNextDrawable, gOrigPresent;
 static char kStateKey;
@@ -53,15 +56,17 @@ static char kStateKey;
 - (CFTimeInterval)presentedTime { return self.real.presentedTime; }
 - (void)addPresentedHandler:(MTLDrawablePresentedHandler)block { [self.real addPresentedHandler:block]; }
 // Direct presents (no command buffer) cannot carry the upscale; show the real drawable.
-- (void)present { [self.real present]; }
-- (void)presentAtTime:(CFTimeInterval)t { [self.real presentAtTime:t]; }
-- (void)presentAfterMinimumDuration:(CFTimeInterval)d { [self.real presentAfterMinimumDuration:d]; }
+// Seeing one means this game presents some other way: stop proxying from the next frame.
+- (void)present { gDisabled = YES; [self.real present]; }
+- (void)presentAtTime:(CFTimeInterval)t { gDisabled = YES; [self.real presentAtTime:t]; }
+- (void)presentAfterMinimumDuration:(CFTimeInterval)d { gDisabled = YES; [self.real presentAfterMinimumDuration:d]; }
 // Anything else (private selectors Metal may probe) goes to the real drawable.
 - (id)forwardingTargetForSelector:(SEL)sel { return self.real; }
 @end
 
 static BOOL isWineLayer(CAMetalLayer *layer) {
     if (gAnyLayer) return YES;
+    if (!gD3DMetalLoaded) return NO;
     id d = layer.delegate;
     return d && strstr(class_getName([d class]), "WineMetalView") != NULL;
 }
@@ -85,7 +90,14 @@ static WynixLayerState *stateFor(CAMetalLayer *layer, NSUInteger outW, NSUIntege
     desc.inputWidth = inW; desc.inputHeight = inH;
     desc.outputWidth = outW; desc.outputHeight = outH;
     desc.colorTextureFormat = fmt; desc.outputTextureFormat = fmt;
-    desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModePerceptual;
+    switch (fmt) {  // _sRGB samples come back linear; float formats may hold HDR values
+        case MTLPixelFormatBGRA8Unorm_sRGB: case MTLPixelFormatRGBA8Unorm_sRGB:
+            desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModeLinear; break;
+        case MTLPixelFormatRGBA16Float:
+            desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModeHDR; break;
+        default:
+            desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModePerceptual;
+    }
     id<MTLFXSpatialScaler> scaler = [desc newSpatialScalerWithDevice:dev];
     if (!scaler) { LOG("scaler creation failed for format %lu", (unsigned long)fmt); return nil; }
 
@@ -151,6 +163,12 @@ static void hookPresent(id<MTLDevice> dev) {
     LOG("command buffer class %s", class_getName(cbClass));
 }
 
+static void onImageAdded(const struct mach_header *mh, intptr_t slide) {
+    Dl_info info;
+    if (!gD3DMetalLoaded && dladdr(mh, &info) && info.dli_fname && strstr(info.dli_fname, "D3DMetal.framework"))
+        gD3DMetalLoaded = YES;
+}
+
 __attribute__((constructor)) static void wynixUpscaleInit(void) {
     const char *on = getenv("WYNIX_UPSCALE");
     if (!on || strcmp(on, "1") != 0) return;
@@ -162,5 +180,6 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     if (!mn) return;
     gOrigNextDrawable = method_getImplementation(mn);
     class_replaceMethod([CAMetalLayer class], @selector(nextDrawable), (IMP)hookedNextDrawable, method_getTypeEncoding(mn));
+    _dyld_register_func_for_add_image(onImageAdded);  // also replays images already loaded
     LOG("active, scale %.2f", gScale);
 }
