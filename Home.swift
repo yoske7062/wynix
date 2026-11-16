@@ -347,6 +347,10 @@ final class GameModeBooster {
     func engage(onHot: @escaping (String) -> Void) {
         guard !session else { return }
         session = true
+        let startState = ProcessInfo.processInfo.thermalState
+        if startState == .serious || startState == .critical {
+            onHot("Your Mac is getting hot. Lower the game's resolution or turn on Boost to cool it down.")
+        }
         thermalObserver = NotificationCenter.default.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main) { _ in
             let state = ProcessInfo.processInfo.thermalState
@@ -397,13 +401,14 @@ final class GameModeBooster {
         guard CGBeginDisplayConfiguration(&config) == .success else { return }
         for id in ids.prefix(Int(count)) {
             guard let cur = CGDisplayCopyDisplayMode(id),
-                  let all = CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode] else { continue }
+                  let all = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode] else { continue }
             let modes = all.filter { $0.width == cur.width && $0.height == cur.height }
             guard let i = GameModeSafety.mode60Index(
                 current: (cur.pixelWidth, cur.pixelHeight, cur.refreshRate),
                 modes: modes.map { ($0.pixelWidth, $0.pixelHeight, $0.refreshRate) }) else { continue }
             if CGConfigureDisplayWithDisplayMode(config, id, modes[i], nil) == .success { originalModes.append((id, cur)) }
         }
+        if originalModes.isEmpty { CGCancelDisplayConfiguration(config); return }
         if CGCompleteDisplayConfiguration(config, .forAppOnly) != .success { originalModes.removeAll() }
     }
 

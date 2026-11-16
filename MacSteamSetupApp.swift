@@ -249,7 +249,7 @@ final class InstallerModel: ObservableObject {
                 }
                 if let next = self?.pendingPlay {
                     self?.pendingPlay = nil
-                    self?.play(next)
+                    if finished.terminationStatus == 0 { self?.play(next) }
                 }
             }
         }
