@@ -24,7 +24,7 @@
 2. Open the DMG and drag `Mac Steam Setup.app` onto the `Applications` folder shown beside it.
 3. Try to open `Mac Steam Setup.app` once.
 4. If macOS blocks it, go to **System Settings → Privacy & Security → Open Anyway**. This approval is only required once.
-5. Open the app, choose **Prepare Windows Steam**, and complete the Steam installer using its default path.
+5. Open the app, choose **Set Up Steam**, and complete the Steam installer using its default path.
 
 The current beta uses an ad-hoc signature and is not notarized by Apple. Download it only from this repository. A `.sha256` file is included with each release so you can verify the download.
 

@@ -9,7 +9,7 @@ extension Color {
 extension ShapeStyle where Self == Color { static var steamyAccent: Color { .blue } }
 extension Font { static func app(_ style: Font.TextStyle) -> Font { .system(style) } }
 
-enum L10n { static func string(_ k: String) -> String { k } }
+enum L10n { static func string(_ k: String) -> String { k }; static func format(_ k: String, _ a: CVarArg...) -> String { k } }
 @MainActor final class InstallerModel { static func taskEnvironment() -> [String: String] { [:] } }
 
 @main struct Check {

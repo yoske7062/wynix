@@ -170,15 +170,15 @@ final class InstallerModel: ObservableObject {
     func play(_ game: SteamGame) {
         if process != nil {
             pendingPlay = game  // one slot, latest wins; runs when the current task ends
-            message = "Starting \(game.name) when Steam is ready…"
+            message = L10n.format("play.queued", game.name)
             return
         }
-        message = "Starting \(game.name)…"
+        message = L10n.format("play.starting", game.name)
         run(mode: "play", arguments: [game.id], changesMainState: false)
     }
 
     func createShortcut(for game: SteamGame) {
-        guard process == nil else { shortcutMessage = "Busy right now. Try again in a moment."; return }
+        guard process == nil else { shortcutMessage = L10n.string("shortcut.busy"); return }
         shortcutMessage = L10n.format("shortcut.creating", game.name)
         run(mode: "create-shortcut", arguments: [game.id], changesMainState: false)
     }
@@ -555,7 +555,7 @@ struct ContentView: View {
         .sheet(isPresented: $showInstall) {
             InstallSheet(store: store, bottleID: selectedBottleID, file: droppedInstaller)
         }
-        .alert("Error", isPresented: Binding(
+        .alert(L10n.string("alert.error.title"), isPresented: Binding(
             get: { store.alertMessage != nil },
             set: { if !$0 { store.alertMessage = nil } }
         )) {

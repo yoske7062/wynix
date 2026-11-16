@@ -550,7 +550,7 @@ if [[ "${1:-setup}" == "create-bottle" ]]; then
   [[ ! -e "$bottle_link" && ! -L "$bottle_link" && ! -e "$bottle" && ! -L "$bottle" ]] \
     || fail "A bottle named ${bottle_name} already exists."
   [[ -s "$ENGINE_ARCHIVE" && -s "$TEMPLATE_ARCHIVE" ]] \
-    || fail "Prepare Windows Steam first so the Wine engine is downloaded."
+    || fail_key setup_steam_first
   [[ "$(/usr/bin/shasum -a 256 "$ENGINE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$ENGINE_SHA256" \
       && "$(/usr/bin/shasum -a 256 "$TEMPLATE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$TEMPLATE_SHA256" ]] \
     || fail "The cached Wine engine is damaged. Run Steam setup again."

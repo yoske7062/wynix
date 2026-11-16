@@ -98,7 +98,9 @@ ui_text() {
     ko:disk_space_required) format='설치 공간이 부족합니다. 최소 5GB를 확보해 주세요' ;;
     en:disk_space_required) format='Not enough storage space. Free at least 5 GB and try again' ;;
     ko:downloading_components) format='Sikarugir 공식 실행 엔진과 앱 틀을 내려받고 있습니다' ;;
-    en:downloading_components) format='Downloading the official Sikarugir engine and app template' ;;
+    en:downloading_components) format='Downloading components…' ;;
+    ko:setup_steam_first) format='먼저 홈 화면에서 Steam을 설정해 주세요' ;;
+    en:setup_steam_first) format='Set up Steam first, on the Home screen.' ;;
     ko:unsafe_download_path) format='다운로드 위치가 안전하지 않습니다: %s' ;;
     en:unsafe_download_path) format='The download path is unsafe: %s' ;;
     ko:download_failed) format='다운로드에 실패했습니다: %s' ;;
@@ -130,7 +132,7 @@ ui_text() {
     ko:windows_environment_failed) format='Windows 실행 공간 생성에 실패했습니다' ;;
     en:windows_environment_failed) format='Could not create the Windows environment' ;;
     ko:steam_installer_instruction) format='Windows Steam 설치 창이 열리면 기본 설정으로 설치해 주세요' ;;
-    en:steam_installer_instruction) format='When the Windows Steam installer opens, install using the default options' ;;
+    en:steam_installer_instruction) format='In the Steam installer, keep the default options and click through.' ;;
     ko:unsafe_steam_setup_symlink) format='Steam 설치 파일 위치가 심볼릭 링크라 중단했습니다' ;;
     en:unsafe_steam_setup_symlink) format='Stopped because the Steam installer path is a symbolic link' ;;
     ko:unsafe_steam_setup_directory) format='Steam 설치 파일 위치가 폴더라 중단했습니다' ;;
@@ -142,7 +144,7 @@ ui_text() {
     ko:steam_install_timeout) format='Steam 설치 대기 시간이 초과됐습니다' ;;
     en:steam_install_timeout) format='Timed out while waiting for the Steam installation' ;;
     ko:steam_install_failed) format='Steam 설치를 완료하지 못했습니다. 설치 경로는 기본값을 사용해 주세요' ;;
-    en:steam_install_failed) format='Steam installation was not completed. Use the default installation path' ;;
+    en:steam_install_failed) format='Setup did not finish. Click Try Again.' ;;
     ko:applying_configuration) format='D3DMetal과 실행 설정을 자동으로 적용하고 있습니다' ;;
     en:applying_configuration) format='Applying D3DMetal and launch settings' ;;
     ko:steam_plist_missing) format='Steam 앱 설정 파일을 찾을 수 없습니다' ;;

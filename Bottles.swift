@@ -1036,7 +1036,7 @@ final class BottleStore: ObservableObject {
             alertMessage = L10n.string("error.internalScriptMissing")
             return completion(nil)
         }
-        activity = "Creating bottle \(name)…"
+        activity = L10n.format("bottle.creating", name)
         var env = InstallerModel.taskEnvironment()
         if let dir = Self.bottleStorageDir { env["STEAMY_BOTTLE_DIR"] = dir.path }
         spawn(URL(fileURLWithPath: "/bin/bash"), [script, "create-bottle", name],
@@ -1048,14 +1048,14 @@ final class BottleStore: ObservableObject {
                 completion(self.bottles.first { $0.name == name })
             } else {
                 let error = output.split(separator: "\n").last { $0.hasPrefix("@@ERROR|") }
-                self.alertMessage = error.map { String($0.dropFirst(8)) } ?? "Could not create the bottle.\n\(output.suffix(400))"
+                self.alertMessage = error.map { String($0.dropFirst(8)) } ?? L10n.format("bottle.createFailed", String(output.suffix(400)))
                 completion(nil)
             }
         }
     }
 
     func rename(_ bottle: Bottle, to name: String) {
-        guard !bottle.isSteam, isValidBottleName(name) else { alertMessage = "Invalid bottle name."; return }
+        guard !bottle.isSteam, isValidBottleName(name) else { alertMessage = L10n.string("bottle.invalidName"); return }
         let target = Self.root.appendingPathComponent(name + ".app")
         launcher(bottle, ["WSS-wineserverkill"]) { [weak self] _, _ in
             do {
@@ -2113,7 +2113,7 @@ struct NewBottleSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New Bottle").font(.app(.title2).bold())
-            Text("Creates a separate Windows 10 environment with its own C: drive, using the Wine engine downloaded during Steam setup.")
+            Text("Makes a separate Windows space for a game that needs its own settings. Set up Steam first.")
                 .font(.app(.callout)).foregroundStyle(.secondary)
             TextField("Bottle name", text: $name)
             if store.engines.count > 1 {
@@ -2167,7 +2167,7 @@ struct InstallSheet: View {
                 ForEach(store.bottles) { Text($0.name).tag(Optional($0.id)) }
             }
             if store.bottles.isEmpty {
-                Text("No bottles yet. Prepare Windows Steam or create a new bottle first.").font(.app(.caption)).foregroundStyle(.secondary)
+                Text("No bottles yet. Set up Steam or make a new bottle first.").font(.app(.caption)).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()

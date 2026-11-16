@@ -74,7 +74,7 @@ struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L10n.string("disclaimer.compatibility"))
-                    Text("Unofficial project, not affiliated with Valve, Apple, CodeWeavers or Sikarugir.")
+                    Text("Unofficial. Not affiliated with Valve, Apple, CodeWeavers or Sikarugir.")
                 }
                 .font(.app(.caption))
                 .foregroundStyle(.tertiary)
@@ -100,7 +100,7 @@ struct HomeView: View {
                 ? (model.isSteamRunning ? "Running" : "Installed and ready")
                 : "Valve's store and your Steam library",
             icon: "cloud.fill", tint: Color(hex: 0x1B2838), logo: "steam",
-            actionTitle: model.state == .ready ? (model.isSteamRunning ? "Show" : "Open") : "Set Up",
+            actionTitle: model.state == .ready ? (model.isSteamRunning ? "Show" : "Open") : "Set Up Steam",
             busy: model.isBusy
         ) {
             if model.state == .ready { model.openSteam() } else { model.primaryAction() }
@@ -295,7 +295,7 @@ struct SettingsView: View {
             Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.vercel.app/legal.html")!)
 
             Section("Help") {
-                HelpItem("Home", "Game stores and your bottles. Press Install on a store once, then Open it and sign in with your normal account.")
+                HelpItem("Home", "Game stores and your bottles. Press Set Up Steam once, then Open it and sign in with your normal account.")
                 HelpItem("Games", "Every Steam game you installed. Press Play. Right click a game to make a Dock shortcut or hide it.")
                 HelpItem("Bottles", "A bottle is a small Windows setup that lives inside WYNIX. Each one keeps its own programs and settings, so a broken game can't mess up the rest.")
                 HelpItem("Install from File", "Runs any Windows installer (.exe or .msi), games or not. The program shows up in the bottle and in ~/Applications like a Mac app.")
