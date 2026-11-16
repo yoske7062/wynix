@@ -332,6 +332,8 @@ final class BottleStore: ObservableObject {
             .filter { fm.isExecutableFile(atPath: $0.wine.path) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         if list != bottles { bottles = list }  // no redraw on every app activation
+        let found = scanEngines()
+        if found != engines { engines = found }
     }
 
     // MARK: Programs
@@ -471,14 +473,21 @@ final class BottleStore: ObservableObject {
 
     /// Steam re-adds itself to Windows' auto-start list when it exits, and Wine replays that
     /// list whenever the bottle wakes up. Clear it before Steamy wakes the Steam bottle.
-    private func clearSteamAutorun(_ bottle: Bottle) {
-        guard bottle.isSteam, let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { return }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/bash")
-        task.arguments = [script, "autorun-off"]
-        task.environment = InstallerModel.taskEnvironment()
-        try? task.run()
-        task.waitUntilExit()
+    /// Runs `then` on main after autorun-off finished. The wait happens on a serial queue, so
+    /// calls keep their order and main never blocks. Non-Steam bottles run `then` right away.
+    private static let autorunQueue = DispatchQueue(label: "wynix.autorun")
+    private func afterSteamAutorunOff(_ bottle: Bottle, _ then: @escaping @MainActor () -> Void) {
+        guard bottle.isSteam, let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { then(); return }
+        let env = InstallerModel.taskEnvironment()
+        Self.autorunQueue.async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/bash")
+            task.arguments = [script, "autorun-off"]
+            task.environment = env
+            try? task.run()
+            task.waitUntilExit()
+            DispatchQueue.main.async { MainActor.assumeIsolated { then() } }
+        }
     }
 
     /// Closes Steam and every program running in any bottle (used when Steamy quits).
@@ -534,12 +543,12 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
-        clearSteamAutorun(bottle)
-        spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
+        afterSteamAutorunOff(bottle) { [self] in
+            spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
+        }
     }
 
     func wine(_ bottle: Bottle, _ arguments: [String], completion: ((Bool, String) -> Void)? = nil) {
-        clearSteamAutorun(bottle)
         let c = bottle.contents.path
         var env = InstallerModel.taskEnvironment()
         env["WINEPREFIX"] = bottle.prefix.path
@@ -551,9 +560,11 @@ final class BottleStore: ObservableObject {
         // Match the running wineserver's sync mode, or clients fail to connect.
         env["WINEMSYNC"] = flag(bottle, "WINEMSYNC") ? "1" : "0"
         env["WINEESYNC"] = flag(bottle, "WINEESYNC") ? "1" : "0"
-        spawn(bottle.wine, arguments, environment: env) { [weak self] status, output in
-            if status != 0 { self?.alertMessage = "wine \(arguments.prefix(2).joined(separator: " ")) failed:\n\(output.suffix(400))" }
-            completion?(status == 0, output)
+        afterSteamAutorunOff(bottle) { [self] in
+            spawn(bottle.wine, arguments, environment: env) { [weak self] status, output in
+                if status != 0 { self?.alertMessage = "wine \(arguments.prefix(2).joined(separator: " ")) failed:\n\(output.suffix(400))" }
+                completion?(status == 0, output)
+            }
         }
     }
 
@@ -738,7 +749,10 @@ final class BottleStore: ObservableObject {
         .appendingPathComponent("Library/Application Support/Steamy/Engines")
     static let bundledEngine = Engine(id: "bundled", title: "Wine 10 (stable)", url: nil)
 
-    var engines: [Engine] {
+    /// Cached: the body reads this often. Refreshed by reload() (also on every app activation).
+    @Published private(set) var engines: [Engine] = []
+
+    private func scanEngines() -> [Engine] {
         let fm = FileManager.default
         let dirs = (try? fm.contentsOfDirectory(at: Self.enginesRoot, includingPropertiesForKeys: nil)) ?? []
         return [Self.bundledEngine] + dirs
@@ -908,8 +922,15 @@ final class BottleStore: ObservableObject {
 
     // MARK: Settings (wrapper Info.plist)
 
+    /// Parsed Info.plist per bottle, re-read only when the file's modification date changes.
+    private var plistCache: [URL: (Date?, [String: Any])] = [:]
+
     func plistDictionary(_ bottle: Bottle) -> [String: Any] {
-        (NSDictionary(contentsOf: bottle.plist) as? [String: Any]) ?? [:]
+        let mtime = try? bottle.plist.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        if let hit = plistCache[bottle.url], hit.0 == mtime, mtime != nil { return hit.1 }
+        let dict = (NSDictionary(contentsOf: bottle.plist) as? [String: Any]) ?? [:]
+        plistCache[bottle.url] = (mtime, dict)
+        return dict
     }
 
     func flag(_ bottle: Bottle, _ key: String) -> Bool {
@@ -926,6 +947,7 @@ final class BottleStore: ObservableObject {
         } catch {
             alertMessage = error.localizedDescription
         }
+        plistCache[bottle.url] = nil
         objectWillChange.send()
     }
 
@@ -1107,7 +1129,22 @@ final class BottleStore: ObservableObject {
     // MARK: Storage location (This Mac or an external drive)
 
     /// External, writable drives a bottle can live on (e.g. a USB SSD).
+    private static var volumesCache: [URL]?
+    private static let volumeObservers: [NSObjectProtocol] = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification].map {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: $0, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { volumesCache = nil }
+        }
+    }
+
     static var externalVolumes: [URL] {
+        _ = volumeObservers
+        if let cached = volumesCache { return cached }
+        let found = scanExternalVolumes()
+        volumesCache = found
+        return found
+    }
+
+    private static func scanExternalVolumes() -> [URL] {
         let keys: [URLResourceKey] = [.volumeIsInternalKey, .volumeIsRootFileSystemKey, .volumeIsReadOnlyKey]
         return (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [])
             .filter { url in
@@ -1297,6 +1334,23 @@ struct BottleView: View {
     }
 }
 
+/// Decoded icons, so a redraw doesn't decode the same PNG again.
+enum ImageCache {
+    private static let cache = NSCache<NSString, NSImage>()
+    static func image(key: String, data: Data?) -> NSImage? {
+        if let hit = cache.object(forKey: key as NSString) { return hit }
+        guard let data, let image = NSImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key as NSString)
+        return image
+    }
+    static func image(path: String) -> NSImage? {
+        if let hit = cache.object(forKey: path as NSString) { return hit }
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        cache.setObject(image, forKey: path as NSString)
+        return image
+    }
+}
+
 struct ProgramTile: View {
     let program: WinProgram
     var opening = false
@@ -1305,7 +1359,7 @@ struct ProgramTile: View {
     var body: some View {
         VStack(spacing: 8) {
             Group {
-                if let data = program.iconData, let image = NSImage(data: data) {
+                if let image = ImageCache.image(key: program.id, data: program.iconData) {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                 } else {
                     Image(systemName: program.path.lowercased().hasSuffix(".bat") ? "terminal.fill" : "app.dashed")

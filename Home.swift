@@ -169,10 +169,13 @@ struct CatalogCard: View {
 /// Store brand marks bundled from Simple Icons (Resources/Logos, CC0 SVG paths).
 /// Trademarks belong to their owners and are used only to identify each store.
 enum BrandLogo {
+    private static var cache: [String: NSImage] = [:]
     static func image(_ name: String) -> NSImage? {
+        if let hit = cache[name] { return hit }
         guard let url = Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Logos"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = true
+        cache[name] = image
         return image
     }
 }
@@ -329,6 +332,7 @@ final class GameModeBooster {
     private static let savedKey = "gameModeLowered"
     private var lowered: [pid_t] = []
     private var session = false
+    private var generation = 0
     private var originalModes: [(CGDirectDisplayID, CGDisplayMode)] = []
     private var thermalObserver: NSObjectProtocol?
     var isEngaged: Bool { session }
@@ -365,30 +369,49 @@ final class GameModeBooster {
             .filter { Self.heavyApps.contains($0.bundleIdentifier ?? "") }
             .compactMap { $0.bundleURL?.path }
         guard !roots.isEmpty else { return }
-        // Every process of those apps, helpers and renderers included.
-        let ps = Process()
-        let pipe = Pipe()
-        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-        ps.arguments = ["-axo", "pid=,comm="]
-        ps.standardOutput = pipe
-        try? ps.run()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        ps.waitUntilExit()
-        for line in output.split(separator: "\n") {
-            let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
-            guard parts.count == 2, let pid = pid_t(parts[0]),
-                  roots.contains(where: { String(parts[1]).hasPrefix($0 + "/") }) else { continue }
-            if Self.taskpolicy("-b", pid) { lowered.append(pid) }
+        // Every process of those apps, helpers and renderers included. ps and taskpolicy run off the main thread.
+        let generation = generation
+        DispatchQueue.global(qos: .utility).async {
+            let ps = Process()
+            let pipe = Pipe()
+            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-axo", "pid=,comm="]
+            ps.standardOutput = pipe
+            try? ps.run()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            ps.waitUntilExit()
+            var done: [pid_t] = []
+            for line in output.split(separator: "\n") {
+                let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+                guard parts.count == 2, let pid = pid_t(parts[0]),
+                      roots.contains(where: { String(parts[1]).hasPrefix($0 + "/") }) else { continue }
+                if Self.taskpolicy("-b", pid) { done.append(pid) }
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let me = GameModeBooster.shared
+                    guard me.generation == generation, me.session else {
+                        // Session ended while we were lowering: put them back.
+                        DispatchQueue.global(qos: .utility).async { for pid in done { _ = Self.taskpolicy("-B", pid) } }
+                        return
+                    }
+                    me.lowered = done
+                    // Persist with start times so a crash can't leave these apps in the background band forever.
+                    UserDefaults.standard.set(done.compactMap { pid in GameModeSafety.startTime(pid).map { "\(pid):\($0)" } }, forKey: Self.savedKey)
+                }
+            }
         }
-        // Persist with start times so a crash can't leave these apps in the background band forever.
-        UserDefaults.standard.set(lowered.compactMap { pid in GameModeSafety.startTime(pid).map { "\(pid):\($0)" } }, forKey: Self.savedKey)
     }
 
-    func release() {
+    /// Off-main unless `sync` (applicationWillTerminate must finish before the process exits).
+    func release(sync: Bool = false) {
         session = false
+        generation += 1
         if let o = thermalObserver { NotificationCenter.default.removeObserver(o); thermalObserver = nil }
-        for pid in lowered { _ = Self.taskpolicy("-B", pid) }
+        let pids = lowered
         lowered.removeAll()
+        if sync { for pid in pids { _ = Self.taskpolicy("-B", pid) } }
+        else if !pids.isEmpty { DispatchQueue.global(qos: .utility).async { for pid in pids { _ = Self.taskpolicy("-B", pid) } } }
         UserDefaults.standard.removeObject(forKey: Self.savedKey)
         restoreDisplays()
     }
@@ -424,7 +447,7 @@ final class GameModeBooster {
     }
 
     @discardableResult
-    private static func taskpolicy(_ flag: String, _ pid: pid_t) -> Bool {
+    nonisolated private static func taskpolicy(_ flag: String, _ pid: pid_t) -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/taskpolicy")
         task.arguments = [flag, "-p", String(pid)]

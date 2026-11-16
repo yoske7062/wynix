@@ -915,7 +915,7 @@ struct GameIconView: View {
 
     var body: some View {
         Group {
-            if let path = game.iconPath, let image = NSImage(contentsOfFile: path) {
+            if let path = game.iconPath, let image = ImageCache.image(path: path) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -994,7 +994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { GameModeBooster.shared.release() }
+        MainActor.assumeIsolated { GameModeBooster.shared.release(sync: true) }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
