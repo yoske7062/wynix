@@ -5,7 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WYNIX - Run Windows games and apps on your Mac. Free.</title>
 <meta name="description" content="Free Mac app that runs Windows games and apps on Apple Silicon. Steam, Epic, GOG, Battle.net and any .exe. No Windows license, no VM, no $99 a year.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23111'/%3E%3Cpath d='M13 24l8 15 11-15 11 15 8-15' fill='none' stroke='%23fff' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#111214">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WYNIX">
+<meta property="og:url" content="https://wynix.vercel.app/">
+<meta property="og:title" content="WYNIX - Your Windows games and apps. On your Mac.">
+<meta property="og:description" content="Free Mac app for Apple Silicon. Steam, Epic, GOG, Battle.net or any .exe. No virtual machine, no Windows license.">
+<meta property="og:image" content="https://wynix.vercel.app/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="WYNIX: Your Windows games and apps on your Mac. Free.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="WYNIX - Your Windows games and apps. On your Mac.">
+<meta name="twitter:description" content="Free Mac app for Apple Silicon. No virtual machine, no Windows license.">
+<meta name="twitter:image" content="https://wynix.vercel.app/og.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Archivo:wdth,wght@125,900&display=swap" rel="stylesheet">
 <style>
@@ -74,6 +89,12 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .theirs{align-self:flex-start;margin-top:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--gray);border:1px dashed var(--line);border-radius:99px;padding:3px 10px}
 .bill .them{color:var(--gray);text-decoration:line-through;text-decoration-color:#E05A83;text-decoration-thickness:3px}
 .bill .them small{font-size:16px}
+.goal{margin-top:36px;border:1px solid var(--line);border-radius:var(--r);padding:24px 28px;background:oklch(0.17 0 0 / .6);max-width:720px}
+.goal div:first-child{display:flex;flex-direction:column;gap:6px}.goal b{font-weight:600;font-size:18px}.goal span{color:var(--gray)}
+.goal .bar{height:8px;border-radius:99px;background:var(--line);margin:18px 0 8px;overflow:hidden}.goal .bar i{display:block;height:100%;background:var(--acc);border-radius:99px}
+.goal small{color:var(--gray);font-size:13px}
+.perks{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px}
+.perks>div{border:1px solid var(--line);border-radius:var(--r);padding:22px}.perks b{font-weight:600}.perks p{color:var(--gray);font-size:15px;margin-top:6px}
 /* app replica */
 .app{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;margin:72px auto 0;display:grid;grid-template-columns:210px 1fr;height:620px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#1e1e1e;text-align:left;font-size:14px}
 .app aside{background:#161616;border-right:1px solid #2a2a2a;padding:14px 10px;display:flex;flex-direction:column;gap:2px}
@@ -235,7 +256,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .app .stores,.app .stores.one,.app .split{grid-template-columns:1fr}
   .app .lib{grid-template-columns:repeat(2,1fr)}
   section.wrap{padding-top:80px}
-  .why,.bill,.fix{grid-template-columns:1fr}
+  .why,.bill,.fix,.perks{grid-template-columns:1fr}
   #faq{grid-template-columns:1fr;gap:28px}
   .faqhead{position:static}
   .why div,.why div:not(:nth-child(3n+1)){padding:24px 0;border-left:0}
@@ -261,7 +282,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 <nav id="nav">
   <div class="wrap">
     <a class="brand" href="#" aria-label="WYNIX home"><span class="w">W</span>YNIX</a>
-    <div class="links"><a href="#bill">Why us</a><a href="#games">Games</a><a href="#compare">Compare</a><a href="#faq">FAQ</a><a href="#safe">"Not safe"?</a></div>
+    <div class="links"><a href="#bill">Why us</a><a href="#games">Games</a><a href="#compare">Compare</a><a href="#faq">FAQ</a><a href="#safe">"Not safe"?</a><a href="#donate">Donate</a></div>
     <a class="btn" href="#download"><svg width="14" height="14"><use href="#apple"/></svg>Download</a>
   </div>
 </nav>
@@ -497,6 +518,23 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </div>
 </section>
 
+<section id="donate" class="wrap">
+  <h2 data-up>Free forever. <span>Donations keep it <em class="acc">alive</em>.</span></h2>
+  <p class="lead" data-up>WYNIX will never have a paywall, a trial or ads. If it saved you $99 a year, consider tipping a few of them back. It's 100% optional, and everyone gets the same app.</p>
+  <div class="goal" data-up>
+    <div><b>First goal: kill the "not safe" warning</b><span>Apple charges $99/year to notarize Mac apps. Once we hit it, macOS stops warning everyone who downloads WYNIX.</span></div>
+    <div class="bar"><i style="width:0%"></i></div>
+    <small>$0 of $99 raised</small>
+  </div>
+  <div class="perks" data-list>
+    <div><b>Your name in the app</b><p>Every supporter goes on the Supporters list inside WYNIX and on this page.</p></div>
+    <div><b>Pick the next games</b><p>Supporters vote on which games we test, tune and fix next.</p></div>
+    <div><b>Early builds</b><p>Try new versions before everyone else and tell us what breaks.</p></div>
+  </div>
+  <!-- TODO owner: replace with your real Ko-fi page once created -->
+  <a class="btn lg" id="donateBtn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" data-up style="margin-top:36px">Support WYNIX</a>
+</section>
+
 <section id="download" class="wrap end">
   <div class="panel">
   <h2 data-up>Keep your money. <span><em class="acc">Play the game.</em></span></h2>
@@ -595,5 +633,6 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
 })();
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

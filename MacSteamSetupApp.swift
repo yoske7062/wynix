@@ -470,6 +470,7 @@ struct ContentView: View {
                             Text(activity).font(.app(.caption)).lineLimit(2)
                         }
                     }
+                    UpdateButton()
                     Button { showOptimize = true } label: {
                         Label("Optimize", systemImage: "bolt.fill").font(.app(.title3)).foregroundStyle(.steamyAccent)
                     }
@@ -509,6 +510,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1080, minHeight: 680)
+        .onAppear { Updater.shared.start() }
         .overlay {
             if !tutorialDone {
                 TutorialOverlay(steps: Tutorial.steps(steamBottle: store.bottles.first?.id),

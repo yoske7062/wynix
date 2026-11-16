@@ -285,6 +285,7 @@ struct SettingsView: View {
                 .help("Browsers, Discord, Spotify and similar apps get background priority during a game, so the game gets more CPU. Restored when the game ends.")
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
+            Link("Support WYNIX (optional donation)", destination: URL(string: "https://wynix.vercel.app/#donate")!)
 
             Section("Help") {
                 HelpItem("Home", "Game stores and your bottles. Press Install on a store once, then Open it and sign in with your normal account.")

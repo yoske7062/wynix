@@ -7,7 +7,7 @@ APP="$SCRIPT_DIR/build/WYNIX.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 /usr/bin/swiftc -swift-version 5 -parse-as-library \
   -framework SwiftUI -framework AppKit -framework Combine \
-  "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" \
+  "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" "$SCRIPT_DIR/Updater.swift" \
   -o "$APP/Contents/MacOS/MacSteamSetup"
 /usr/bin/ditto "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/setup.sh" "$APP/Contents/Resources/setup.sh"
