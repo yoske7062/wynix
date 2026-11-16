@@ -178,14 +178,16 @@ enum BrandLogo {
 }
 
 extension Color {
-    /// WYNIX accent: brand pink #E05A83 in both modes (slightly deeper in Light Mode for contrast).
+    /// Accent: neutral grey in Dark Mode, green in Light Mode (readable on white).
     static let steamyAccent = Color(nsColor: NSColor(name: "steamyAccent") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xE0/255, green: 0x5A/255, blue: 0x83/255, alpha: 1)
-            : NSColor(srgbRed: 0xC9/255, green: 0x44/255, blue: 0x70/255, alpha: 1)
+            ? NSColor(white: 0.62, alpha: 1)
+            : NSColor(srgbRed: 0, green: 0.62, blue: 0.33, alpha: 1)
     })
     /// Text/icon color on a solid accent background.
-    static let onSteamyAccent = Color.white
+    static let onSteamyAccent = Color(nsColor: NSColor(name: "onSteamyAccent") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .black
+    })
 
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)

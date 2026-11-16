@@ -509,7 +509,6 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1080, minHeight: 680)
-        .tint(.steamyAccent)
         .overlay {
             if !tutorialDone {
                 TutorialOverlay(steps: Tutorial.steps(steamBottle: store.bottles.first?.id),
