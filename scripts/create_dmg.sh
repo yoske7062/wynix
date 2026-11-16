@@ -3,7 +3,7 @@ set -euo pipefail
 
 app_path="${1:?Usage: create_dmg.sh APP_PATH OUTPUT_DMG}"
 output_dmg="${2:?Usage: create_dmg.sh APP_PATH OUTPUT_DMG}"
-volume_name="${3:-Mac Steam Setup}"
+volume_name="${3:-WYNIX}"
 
 [[ -d "$app_path" ]] || {
   printf 'App bundle not found: %s\n' "$app_path" >&2
@@ -43,7 +43,7 @@ writable_image="$work_dir/writable.dmg"
   "$writable_image"
 mounted=1
 
-/usr/bin/ditto "$app_path" "$mount_dir/Mac Steam Setup.app"
+/usr/bin/ditto "$app_path" "$mount_dir/$(/usr/bin/basename "$app_path")"
 /bin/ln -s /Applications "$mount_dir/Applications"
 /bin/sync
 
