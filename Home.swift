@@ -330,7 +330,13 @@ final class GameModeBooster {
     ]
 
     private static let savedKey = "gameModeLowered"
-    private var lowered: [pid_t] = []
+    /// The one queue for all taskpolicy work. `queueLowered` is touched only on it.
+    nonisolated private static let work = DispatchQueue(label: "wynix.gamemode", qos: .utility)
+    nonisolated(unsafe) private static var queueLowered: [pid_t] = []
+    nonisolated(unsafe) private static var live = 0
+    nonisolated private static let liveLock = NSLock()
+    nonisolated private static var liveGeneration: Int { liveLock.lock(); defer { liveLock.unlock() }; return live }
+    nonisolated private static func setLive(_ g: Int) { liveLock.lock(); live = g; liveLock.unlock() }
     private var session = false
     private var generation = 0
     private var originalModes: [(CGDirectDisplayID, CGDisplayMode)] = []
@@ -369,9 +375,11 @@ final class GameModeBooster {
             .filter { Self.heavyApps.contains($0.bundleIdentifier ?? "") }
             .compactMap { $0.bundleURL?.path }
         guard !roots.isEmpty else { return }
-        // Every process of those apps, helpers and renderers included. ps and taskpolicy run off the main thread.
+        // Every process of those apps, helpers and renderers included. All taskpolicy work (lower, persist,
+        // restore) runs on the one serial `work` queue, so release(sync:) waits for an in-flight lowering.
         let generation = generation
-        DispatchQueue.global(qos: .utility).async {
+        Self.setLive(generation)
+        Self.work.async {
             let ps = Process()
             let pipe = Pipe()
             ps.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -380,39 +388,32 @@ final class GameModeBooster {
             try? ps.run()
             let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             ps.waitUntilExit()
-            var done: [pid_t] = []
             for line in output.split(separator: "\n") {
+                guard Self.liveGeneration == generation else { return }  // released or superseded: stop lowering
                 let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
                 guard parts.count == 2, let pid = pid_t(parts[0]),
                       roots.contains(where: { String(parts[1]).hasPrefix($0 + "/") }) else { continue }
-                if Self.taskpolicy("-b", pid) { done.append(pid) }
-            }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    let me = GameModeBooster.shared
-                    guard me.generation == generation, me.session else {
-                        // Session ended while we were lowering: put them back.
-                        DispatchQueue.global(qos: .utility).async { for pid in done { _ = Self.taskpolicy("-B", pid) } }
-                        return
-                    }
-                    me.lowered = done
-                    // Persist with start times so a crash can't leave these apps in the background band forever.
-                    UserDefaults.standard.set(done.compactMap { pid in GameModeSafety.startTime(pid).map { "\(pid):\($0)" } }, forKey: Self.savedKey)
+                if Self.taskpolicy("-b", pid) {
+                    Self.queueLowered.append(pid)
+                    // Persist as each pid is lowered, with start times, so a crash can't leave it in the background band.
+                    UserDefaults.standard.set(Self.queueLowered.compactMap { p in GameModeSafety.startTime(p).map { "\(p):\($0)" } }, forKey: Self.savedKey)
                 }
             }
         }
     }
 
-    /// Off-main unless `sync` (applicationWillTerminate must finish before the process exits).
+    /// Restores everything on the work queue. `sync` (applicationWillTerminate) waits for any in-flight lowering first.
     func release(sync: Bool = false) {
         session = false
         generation += 1
+        Self.setLive(generation)  // tells an in-flight engage block to stop
         if let o = thermalObserver { NotificationCenter.default.removeObserver(o); thermalObserver = nil }
-        let pids = lowered
-        lowered.removeAll()
-        if sync { for pid in pids { _ = Self.taskpolicy("-B", pid) } }
-        else if !pids.isEmpty { DispatchQueue.global(qos: .utility).async { for pid in pids { _ = Self.taskpolicy("-B", pid) } } }
-        UserDefaults.standard.removeObject(forKey: Self.savedKey)
+        let undo = {
+            for pid in Self.queueLowered { _ = Self.taskpolicy("-B", pid) }
+            Self.queueLowered.removeAll()
+            UserDefaults.standard.removeObject(forKey: Self.savedKey)
+        }
+        if sync { Self.work.sync(execute: undo) } else { Self.work.async(execute: undo) }
         restoreDisplays()
     }
 
