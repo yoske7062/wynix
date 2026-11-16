@@ -999,6 +999,7 @@ final class BottleStore: ObservableObject {
 
     func setBoost(_ bottle: Bottle, _ on: Bool) {
         guard writeDXMTConfig(bottle, boost: on) else { return }
+        if on && upscaleDX12(bottle) { setUpscaleDX12(bottle, false) }  // one upscaler at a time
         if on {
             var values = GraphicsBackend.dxmt.plistValues
             values["SteamyBoost"] = 1
@@ -1010,6 +1011,38 @@ final class BottleStore: ObservableObject {
             setPlist(bottle, values)
             setEnvironment(bottle, "DXMT_METALFX_SPATIAL_SWAPCHAIN", nil)
         }
+    }
+
+    // MARK: DirectX 12 Boost (experimental, see docs/UPSCALING.md)
+
+    /// D3DMetal has no upscaler, so wynix_upscale.dylib is injected into the bottle's Wine
+    /// processes: it hands the game a smaller drawable and MetalFX-upscales it to the screen.
+    /// EmulateModeset keeps the monitor at its native mode when the game picks 1600x900.
+    func upscaleDX12(_ bottle: Bottle) -> Bool { flag(bottle, "WynixUpscaleDX12") }
+
+    func setUpscaleDX12(_ bottle: Bottle, _ on: Bool) {
+        // Copied into the bottle: the export line is unquoted and DYLD_INSERT_LIBRARIES is
+        // colon-separated, so the app's own path (e.g. "C:WORK1.0") can't be used directly.
+        let dest = bottle.contents.appendingPathComponent("Frameworks/wynix_upscale.dylib")
+        if on && boost(bottle) { setBoost(bottle, false) }  // Boost's DXMT already upscales
+        if on {
+            guard let src = Bundle.main.url(forResource: "wynix_upscale", withExtension: "dylib") else {
+                alertMessage = "DirectX 12 Boost is missing from this copy of WYNIX."
+                return
+            }
+            do {
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.copyItem(at: src, to: dest)
+            } catch {
+                alertMessage = error.localizedDescription
+                return
+            }
+        }
+        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? dest.path : nil)
+        setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
+        setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", on ? String(format: "%.2f", Self.boostFactor) : nil)
+        setRegistry(bottle, key: "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver", name: "EmulateModeset", value: on ? "y" : nil)
+        setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])
     }
 
     // MARK: Optimized state
@@ -1677,6 +1710,8 @@ struct BottleSidePanel: View {
             }
             simpleToggle("Boost", detail: "Set games to 1600×900: MetalFX sharpens them to your screen at a steady 60 FPS (DirectX 11 games)",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
+            simpleToggle("Boost for DirectX 12 (experimental)", detail: "Set games to 1600×900: MetalFX sharpens them to your screen (D3DMetal games). Turn off if a game looks wrong",
+                         isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
             simpleToggle("Show FPS Counter", detail: "See frame rate and GPU load while you play",
                          isOn: store.fpsCounter(bottle)) { store.setFPSCounter(bottle, $0) }
             simpleToggle("Mac Keyboard Shortcuts", detail: "⌘C, ⌘V and ⌘Z work like on your Mac",

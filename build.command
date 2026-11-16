@@ -10,6 +10,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" "$SCRIPT_DIR/Updater.swift" \
   -o "$APP/Contents/MacOS/MacSteamSetup"
 /usr/bin/strip -x "$APP/Contents/MacOS/MacSteamSetup"
+# DirectX 12 Boost: injected into Wine (x86_64, runs under Rosetta like Wine itself).
+/usr/bin/clang -arch x86_64 -mmacosx-version-min=14.0 -O2 -fobjc-arc -dynamiclib \
+  -framework Metal -framework MetalFX -framework QuartzCore -framework Foundation \
+  "$SCRIPT_DIR/Resources/Upscaler/wynix_upscale.m" -o "$APP/Contents/Resources/wynix_upscale.dylib"
 /usr/bin/ditto "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/setup.sh" "$APP/Contents/Resources/setup.sh"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/setup_core.sh" "$APP/Contents/Resources/setup_core.sh"

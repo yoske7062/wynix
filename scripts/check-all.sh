@@ -8,6 +8,7 @@ step minos bash scripts/check-minos.sh
 step tests bash Tests/run.sh
 step updater swift Tests/updater_check.swift
 step bottles bash Tests/bottles_check.sh
+step upscaler bash Tests/upscaler/run.sh
 step api node Tests/api_check.js
 step dmgsum bash -c 'cd site/downloads && shasum -a 256 -c WYNIX.dmg.sha256'
 exit $status
