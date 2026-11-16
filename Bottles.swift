@@ -592,7 +592,7 @@ final class BottleStore: ObservableObject {
         // DLSS use it; the rest are unaffected.
         setEnvironment(bottle, "D3DM_ENABLE_METALFX", "1")
         // Cap games at 60 FPS: no need to burn a fanless Mac. DXVK and DXMT support a cap;
-        // D3DMetal has none.
+        // D3DMetal has none (the opt-in "Limit display to 60 Hz" setting covers it).
         setEnvironment(bottle, "DXVK_FRAME_RATE", "60")
         // This DXVK build (dxvk-macOS-async) compiles shaders in the background: fewer stutters.
         setEnvironment(bottle, "DXVK_ASYNC", "1")
@@ -1967,7 +1967,7 @@ struct OptimizeSheet: View {
         ("xmark.octagon", "No crash pop-ups", "Hides Wine's \"Program Error\" dialogs."),
         ("textformat", "Smooth fonts", "ClearType font smoothing so apps look closer to native."),
         ("sparkles", "DLSS via MetalFX", "Games with DLSS get Apple's MetalFX upscaling and frame generation."),
-        ("thermometer.medium", "60 FPS cap", "Games stop at a steady 60 so your Mac stays cooler (DXVK and DXMT games).")
+        ("thermometer.medium", "60 FPS cap", "Games stop at a steady 60 so your Mac stays cooler (DXVK and DXMT games). Turn on 'Limit display to 60 Hz' in Settings for DirectX 12 games.")
     ]
 
     var body: some View {
@@ -2118,5 +2118,36 @@ enum WindowsInstallerDrop {
             DispatchQueue.main.async { handler(url) }
         }
         return true
+    }
+}
+
+// MARK: - Game Mode helpers (pure, checked in Tests/bottles_check.swift)
+
+enum GameModeSafety {
+    /// Process start time in microseconds, nil if the pid is gone. Distinguishes a reused pid.
+    static func startTime(_ pid: pid_t) -> Int? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        let t = info.kp_proc.p_starttime
+        return Int(t.tv_sec) * 1_000_000 + Int(t.tv_usec)
+    }
+
+    /// Saved "pid:start" strings -> pids that still run the same process.
+    static func stillSame(_ saved: [String], startTime: (pid_t) -> Int?) -> [pid_t] {
+        saved.compactMap { entry in
+            let p = entry.split(separator: ":")
+            guard p.count == 2, let pid = pid_t(p[0]), let start = Int(p[1]), startTime(pid) == start else { return nil }
+            return pid
+        }
+    }
+
+    /// Index of the ~60 Hz mode with the same pixel size, only when the display now runs above 61 Hz.
+    static func mode60Index(current: (w: Int, h: Int, hz: Double), modes: [(w: Int, h: Int, hz: Double)]) -> Int? {
+        guard current.hz > 61 else { return nil }
+        return modes.indices
+            .filter { modes[$0].w == current.w && modes[$0].h == current.h && abs(modes[$0].hz - 60) <= 1 }
+            .min { abs(modes[$0].hz - 60) < abs(modes[$1].hz - 60) }
     }
 }

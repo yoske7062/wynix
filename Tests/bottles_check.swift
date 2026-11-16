@@ -19,6 +19,13 @@ enum L10n { static func string(_ k: String) -> String { k } }
         precondition(BottleStore.waitUntil(timeout: 1, step: 0.01) { n += 1; return n >= 3 })
         precondition(!BottleStore.waitUntil(timeout: 0.05, step: 0.01) { false })
         precondition(BottleStore.waitUntil(timeout: 0, step: 0.01) { true })
+        let same = GameModeSafety.stillSame(["10:5", "11:6", "12:7", "bad"]) { [10: 5, 11: 99][$0] }
+        precondition(same == [10], "pid reuse guard")
+        precondition(GameModeSafety.startTime(getpid()) != nil && GameModeSafety.startTime(getpid()) == GameModeSafety.startTime(getpid()))
+        let modes: [(w: Int, h: Int, hz: Double)] = [(2560, 1440, 120), (2560, 1440, 60), (1920, 1080, 60), (2560, 1440, 59.94)]
+        precondition(GameModeSafety.mode60Index(current: (2560, 1440, 120), modes: modes) == 1)
+        precondition(GameModeSafety.mode60Index(current: (2560, 1440, 60), modes: modes) == nil)
+        precondition(GameModeSafety.mode60Index(current: (3000, 2000, 120), modes: modes) == nil)
         let app = (try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? ""
         precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
         let path = CommandLine.arguments[1]

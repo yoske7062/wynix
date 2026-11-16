@@ -712,7 +712,7 @@ struct GameLibraryView: View {
             return
         }
         model.play(game)
-        GameModeBooster.shared.engage()
+        GameModeBooster.shared.engage { [model] in model.message = $0 }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { startingID = game.id }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
             if startingID == game.id { withAnimation { startingID = nil } }
@@ -988,6 +988,10 @@ struct ManagementRow: View {
 
 /// On quit, offer to close Steam and Windows programs so nothing keeps running in the background.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { GameModeBooster.shared.restoreAfterCrash() }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { GameModeBooster.shared.release() }
     }

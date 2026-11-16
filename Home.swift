@@ -266,6 +266,7 @@ struct SettingsView: View {
     @AppStorage("showAdvancedOptions") private var advanced = false
     @AppStorage(Tutorial.doneKey) private var tutorialDone = false
     @AppStorage("gameMode") private var gameMode = true
+    @AppStorage("cap60Hz") private var cap60Hz = false
     @AppStorage("bottleStorage") private var storage = BottleStore.externalVolumes.first?.path ?? "local"
 
     var body: some View {
@@ -283,6 +284,8 @@ struct SettingsView: View {
             }
             Toggle("Game Mode: lower background apps' priority while playing", isOn: $gameMode)
                 .help("Browsers, Discord, Spotify and similar apps get background priority during a game, so the game gets more CPU. Restored when the game ends.")
+            Toggle("Limit display to 60 Hz while playing", isOn: $cap60Hz)
+                .help("Keeps fanless Macs cooler, also for DirectX 12 games. The display goes back to normal when the game ends or WYNIX quits.")
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
             Link("Support WYNIX (optional donation)", destination: URL(string: "https://wynix.vercel.app/#donate")!)
@@ -322,15 +325,37 @@ final class GameModeBooster {
         "com.anthropic.claudefordesktop", "com.openai.chat", "com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92"
     ]
 
+    private static let savedKey = "gameModeLowered"
     private var lowered: [pid_t] = []
-    var isEngaged: Bool { !lowered.isEmpty }
+    private var session = false
+    private var originalModes: [(CGDirectDisplayID, CGDisplayMode)] = []
+    private var thermalObserver: NSObjectProtocol?
+    var isEngaged: Bool { session }
 
     static var enabled: Bool {
         UserDefaults.standard.object(forKey: "gameMode") as? Bool ?? true
     }
 
-    func engage() {
-        guard Self.enabled, lowered.isEmpty else { return }
+    /// At launch: undo priorities left behind by a crash, only for pids that are still the same process.
+    func restoreAfterCrash() {
+        let saved = UserDefaults.standard.stringArray(forKey: Self.savedKey) ?? []
+        for pid in GameModeSafety.stillSame(saved, startTime: GameModeSafety.startTime) { _ = Self.taskpolicy("-B", pid) }
+        UserDefaults.standard.removeObject(forKey: Self.savedKey)
+    }
+
+    /// `onHot` gets a plain message when the Mac reaches serious/critical thermal state during the session.
+    func engage(onHot: @escaping (String) -> Void) {
+        guard !session else { return }
+        session = true
+        thermalObserver = NotificationCenter.default.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main) { _ in
+            let state = ProcessInfo.processInfo.thermalState
+            if state == .serious || state == .critical {
+                onHot("Your Mac is getting hot. Lower the game's resolution or turn on Boost to cool it down.")
+            }
+        }
+        if UserDefaults.standard.bool(forKey: "cap60Hz") { capDisplays() }
+        guard Self.enabled else { return }
         let roots = NSWorkspace.shared.runningApplications
             .filter { Self.heavyApps.contains($0.bundleIdentifier ?? "") }
             .compactMap { $0.bundleURL?.path }
@@ -350,11 +375,46 @@ final class GameModeBooster {
                   roots.contains(where: { String(parts[1]).hasPrefix($0 + "/") }) else { continue }
             if Self.taskpolicy("-b", pid) { lowered.append(pid) }
         }
+        // Persist with start times so a crash can't leave these apps in the background band forever.
+        UserDefaults.standard.set(lowered.compactMap { pid in GameModeSafety.startTime(pid).map { "\(pid):\($0)" } }, forKey: Self.savedKey)
     }
 
     func release() {
+        session = false
+        if let o = thermalObserver { NotificationCenter.default.removeObserver(o); thermalObserver = nil }
         for pid in lowered { _ = Self.taskpolicy("-B", pid) }
         lowered.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.savedKey)
+        restoreDisplays()
+    }
+
+    /// App-only display change: macOS puts the original mode back if WYNIX quits or crashes.
+    private func capDisplays() {
+        var count: UInt32 = 0
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        guard CGGetActiveDisplayList(16, &ids, &count) == .success else { return }
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success else { return }
+        for id in ids.prefix(Int(count)) {
+            guard let cur = CGDisplayCopyDisplayMode(id),
+                  let all = CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode] else { continue }
+            let modes = all.filter { $0.width == cur.width && $0.height == cur.height }
+            guard let i = GameModeSafety.mode60Index(
+                current: (cur.pixelWidth, cur.pixelHeight, cur.refreshRate),
+                modes: modes.map { ($0.pixelWidth, $0.pixelHeight, $0.refreshRate) }) else { continue }
+            if CGConfigureDisplayWithDisplayMode(config, id, modes[i], nil) == .success { originalModes.append((id, cur)) }
+        }
+        if CGCompleteDisplayConfiguration(config, .forAppOnly) != .success { originalModes.removeAll() }
+    }
+
+    private func restoreDisplays() {
+        guard !originalModes.isEmpty else { return }
+        var config: CGDisplayConfigRef?
+        if CGBeginDisplayConfiguration(&config) == .success {
+            for (id, mode) in originalModes { CGConfigureDisplayWithDisplayMode(config, id, mode, nil) }
+            CGCompleteDisplayConfiguration(config, .forAppOnly)
+        }
+        originalModes.removeAll()
     }
 
     @discardableResult
