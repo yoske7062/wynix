@@ -590,10 +590,16 @@ final class BottleStore: ObservableObject {
         return check.terminationStatus == 0
     }
 
+    /// False (and tells the user) when the bottle was deleted or moved in Finder; stops callers recreating a stray folder.
+    private func bottleExists(_ bottle: Bottle) -> Bool {
+        if FileManager.default.fileExists(atPath: bottle.url.path) { return true }
+        reload()
+        alertMessage = "\(bottle.name) is no longer in the Sikarugir folder. It may have been deleted or moved."
+        return false
+    }
+
     func launcher(_ bottle: Bottle, _ arguments: [String], completion: ((Int32, String) -> Void)? = nil) {
-        guard FileManager.default.fileExists(atPath: bottle.url.path) else {
-            reload()
-            alertMessage = "\(bottle.name) is no longer in the Sikarugir folder. It may have been deleted or moved."
+        guard bottleExists(bottle) else {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
@@ -645,6 +651,7 @@ final class BottleStore: ObservableObject {
     /// Imports registry values in one wine process. Values are already REGEDIT4-formatted
     /// (`"text"` or `dword:00000001`).
     func importRegistry(_ bottle: Bottle, _ sections: [String: [String: String]], completion: (() -> Void)? = nil) {
+        guard FileManager.default.fileExists(atPath: bottle.url.path) else { completion?(); return }
         var text = "REGEDIT4\r\n"
         for (key, values) in sections {
             text += "\r\n[\(key)]\r\n"
@@ -670,6 +677,7 @@ final class BottleStore: ObservableObject {
     /// One-click gaming profile. Every key here was checked against this engine's
     /// winemac driver and the Sikarugir launcher. Takes effect on the bottle's next start.
     func optimizeForGaming(_ bottle: Bottle, completion: (() -> Void)? = nil) {
+        guard bottleExists(bottle) else { return }
         var values: [String: Any] = [
             "WINEMSYNC": 1,                     // Apple-native sync primitives, lowest CPU overhead
             "WINEESYNC": 1,                     // fallback if MSync is unavailable
@@ -1065,6 +1073,7 @@ final class BottleStore: ObservableObject {
     /// upscale factor when Steamy Boost is on.
     @discardableResult
     func writeDXMTConfig(_ bottle: Bottle, boost: Bool) -> Bool {
+        guard FileManager.default.fileExists(atPath: bottle.url.path) else { return false }
         let confDir = bottle.driveC.appendingPathComponent("steamy")
         var conf = "# Written by Steamy\nd3d11.preferredMaxFrameRate = 60\n"
         if boost { conf += "d3d11.metalSpatialUpscaleFactor = \(String(format: "%.2f", Self.boostFactor))\n" }

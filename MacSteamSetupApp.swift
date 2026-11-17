@@ -921,7 +921,8 @@ struct GameLibraryView: View {
             }
             Button(L10n.string("common.cancel"), role: .cancel) {}
         } message: {
-            Text(L10n.format("play.profile.body", L10n.string(pendingAPI == .dx11 ? "play.profile.dx11" : "play.profile.dx12")))
+            Text(L10n.format("play.profile.body", L10n.string(pendingAPI == .dx11 ? "play.profile.dx11" : "play.profile.dx12"))
+                 + (pendingAPI == .dx11 ? "" : "\n" + L10n.string("play.profile.tip")))
         }
         .alert(L10n.string("alert.stop.title"), isPresented: $confirmQuitSteam) {
             Button(L10n.string("common.cancel"), role: .cancel) {}

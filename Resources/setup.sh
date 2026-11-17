@@ -306,6 +306,15 @@ all_steam_libraries() {
   } | /usr/bin/awk '!seen[$0]++'
 }
 
+# True when Steam lists a library folder that isn't there (e.g. an unplugged external drive).
+games_drive_missing() {
+  local library
+  while IFS= read -r library; do
+    [[ -d "$library" ]] || return 0
+  done < <(all_steam_libraries)
+  return 1
+}
+
 steam_installer_is_running() {
   /bin/ps -axo command= | /usr/bin/awk '
     tolower($0) ~ /^[[:space:]]*[a-z]:\\.*steamsetup\.exe/ { found=1 }
@@ -466,7 +475,8 @@ if [[ "${1:-setup}" == "list-games" ]]; then
       printf '@@DLSS|%s|%s\n' "$app_id" "$dlss"
     done < <(/usr/bin/find "$library" -maxdepth 1 -type f -name 'appmanifest_*.acf' -print | /usr/bin/sort)
   done < <(all_steam_libraries)
-  (( found == 1 )) || message_key no_installed_games
+  if (( found == 0 )) && games_drive_missing; then message_key games_drive_missing
+  elif (( found == 0 )); then message_key no_installed_games; fi
   exit 0
 fi
 
@@ -475,6 +485,12 @@ if [[ "${1:-setup}" == "play" ]]; then
   [[ "$app_id" =~ ^[0-9]+$ ]] || fail_key invalid_game_id
   [[ -f "$OWNER_MARKER" && -x "$WRAPPER/Contents/MacOS/Sikarugir" && -f "$STEAM_EXE" ]] \
     || fail_key installed_steam_not_found
+  # The game's manifest is in no reachable library but a library folder is missing: the drive is unplugged.
+  have_manifest=0
+  while IFS= read -r library; do
+    [[ -f "$library/appmanifest_${app_id}.acf" ]] && have_manifest=1
+  done < <(all_steam_libraries)
+  (( have_manifest )) || ! games_drive_missing || fail_key games_drive_missing
   /bin/mkdir -p "$APP_CACHE"
   play_bat="$APP_CACHE/play-${app_id}.bat"
   /usr/bin/sed "s/__STEAM_APP_ID__/$app_id/g" "$SCRIPT_DIR/game_launch.bat.template" > "$play_bat"
@@ -691,7 +707,7 @@ fetch() {
     local partial total_bytes=0 curl_pid current_bytes=0 current_percent
     partial="$(/usr/bin/mktemp "${destination}.part.XXXXXX")"
     CURRENT_PART="$partial"
-    total_bytes="$(/usr/bin/curl --fail --silent --show-error --location --head "$url" 2>/dev/null \
+    total_bytes="$(/usr/bin/curl --connect-timeout 20 --max-time 30 --fail --silent --show-error --location --head "$url" 2>/dev/null \
       | /usr/bin/awk 'tolower($1) == "content-length:" { value=$2 } END { gsub("\\r", "", value); print value+0 }' || true)"
     if (( total_bytes > 0 )); then
       local free_kb
@@ -702,7 +718,7 @@ fetch() {
         fail_key not_enough_space_download "$label"
       fi
     fi
-    /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial" "$url" &
+    /usr/bin/curl --connect-timeout 20 --speed-limit 1024 --speed-time 60 --fail --location --retry 3 --silent --show-error --output "$partial" "$url" &
     curl_pid=$!; CURL_PID="$curl_pid"
     while /bin/kill -0 "$curl_pid" 2>/dev/null; do
       current_bytes="$(/usr/bin/stat -f %z "$partial" 2>/dev/null || printf '0')"
@@ -770,7 +786,7 @@ if ! steam_install_is_complete; then
   [[ ! -d "$STEAM_SETUP" ]] || fail_key unsafe_steam_setup_directory
   if ! steam_setup_is_valid "$STEAM_SETUP"; then
     partial_setup="$(/usr/bin/mktemp "${STEAM_SETUP}.part.XXXXXX")"
-    /usr/bin/curl --fail --location --retry 3 --silent --show-error --output "$partial_setup" "$STEAM_URL" \
+    /usr/bin/curl --connect-timeout 20 --speed-limit 1024 --speed-time 60 --fail --location --retry 3 --silent --show-error --output "$partial_setup" "$STEAM_URL" \
       || { /bin/rm -f "$partial_setup"; fail_key download_failed "Steam"; }
     steam_setup_is_valid "$partial_setup" || { /bin/rm -f "$partial_setup"; fail_key steam_setup_validation_failed; }
     /bin/mv "$partial_setup" "$STEAM_SETUP"

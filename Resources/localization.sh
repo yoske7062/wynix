@@ -55,6 +55,8 @@ ui_text() {
     en:steam_stop_failed) format='Could not completely stop Windows Steam' ;;
     ko:steam_stopped) format='Windows Steam을 완전히 종료했습니다' ;;
     en:steam_stopped) format='Windows Steam was completely stopped' ;;
+    ko:games_drive_missing) format='게임 드라이브가 연결되어 있지 않습니다. 드라이브를 연결한 뒤 다시 시도해 주세요' ;;
+    en:games_drive_missing) format='Your games drive is not connected. Plug it in and try again' ;;
     ko:no_installed_games) format='설치된 Windows Steam 게임이 없습니다' ;;
     en:no_installed_games) format='No installed Windows Steam games were found' ;;
     ko:invalid_game_id) format='올바른 Steam 게임 ID가 아닙니다' ;;

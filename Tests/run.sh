@@ -163,6 +163,12 @@ tmp_part="$(/usr/bin/mktemp)"
 CP="$tmp_part" /bin/bash -c 'trap '"'"'status=$?; /bin/rm -f "$CP"; exit "$status"'"'"' EXIT; trap "exit 143" INT TERM; kill -TERM $$; sleep 1' || true
 [[ ! -e "$tmp_part" ]] || fail "TERM trap pattern left the partial file"
 
+# Offline/stalled downloads time out; an unplugged games drive gets its own message.
+[[ "$(/usr/bin/grep -c 'curl --connect-timeout 20' "$setup_src")" -ge 3 ]] || fail "every curl in setup.sh needs --connect-timeout"
+/usr/bin/grep -q -- '--speed-time 60' "$setup_src" || fail "downloads must abort when stalled"
+[[ "$(/usr/bin/grep -c 'games_drive_missing' "$setup_src")" -ge 3 ]] || fail "list-games and play must report a missing games drive"
+/usr/bin/grep -q 'en:games_drive_missing' "$ROOT/Resources/localization.sh" && /usr/bin/grep -q 'ko:games_drive_missing' "$ROOT/Resources/localization.sh" || fail "games_drive_missing needs en and ko"
+
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"
 bash "$ROOT/Tests/localization.sh"

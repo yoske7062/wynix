@@ -81,6 +81,7 @@
 "play.profile.dx12" = "최적화 + DirectX 12 부스트 (MetalFX)";
 "play.profile.dx11" = "최적화 + DirectX 11 부스트 (DXMT, 60 FPS)";
 "play.profile.body" = "권장: %@\n이 게임에 가장 알맞은 설정을 적용합니다. 다른 그래픽 레이어가 필요하면 Steam이 다시 시작됩니다.";
+"play.profile.tip" = "팁: 화면을 가득 채우려면 게임에서 16:9 해상도(1280×720 또는 1600×900)를 선택하세요.";
 "play.profile.apply" = "적용하고 플레이";
 "play.profile.skip" = "변경 없이 플레이";
 "play.detected.dx12" = "%@: DirectX 12 감지, 부스트(MetalFX) 적용 중…";
