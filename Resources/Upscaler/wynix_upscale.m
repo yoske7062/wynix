@@ -23,6 +23,7 @@
 // Env:
 //   WYNIX_UPSCALE=1            enable
 //   WYNIX_UPSCALE_ANY_LAYER=1  hook every CAMetalLayer (tests); default only Wine's views
+//   WYNIX_UPSCALE_LABEL=1      blit a small "WYNIX Boost" box into the top-left of the real drawable
 //   WYNIX_UPSCALE_LOG=1        log decisions to stderr
 //   WYNIX_UPSCALE_OUTPUT=WxH   TEST ONLY: output size when the layer has no window/screen
 //                              (the offscreen test harness); ignored when a screen is found
@@ -32,9 +33,11 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#import <CoreText/CoreText.h>
+#import <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
 
-static BOOL gLog, gAnyLayer;
+static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
 static NSUInteger gTestOutW, gTestOutH;
@@ -48,6 +51,8 @@ static char kStateKey, kInfoKey;
 @property NSArray<id<MTLTexture>> *ring;
 @property NSUInteger next, inW, inH, outW, outH;
 @property MTLPixelFormat format;
+@property id<MTLTexture> label;   // pre-rendered "WYNIX Boost" box, same format as the drawable
+@property BOOL labelTried;
 @end
 @implementation WynixLayerState
 @end
@@ -212,6 +217,65 @@ static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
     return p;
 }
 
+// Renders the label once per state (CoreText into a BGRA bitmap, converted to the drawable's
+// format) and returns it as a small shared texture. nil = format not handled or any failure.
+// An opaque dark box, so a plain blit is enough: no blending, no render pass.
+static id<MTLTexture> makeLabel(WynixLayerState *s, id<MTLDevice> dev) {
+    MTLPixelFormat f = s.format;
+    if (f != MTLPixelFormatBGRA8Unorm && f != MTLPixelFormatBGRA8Unorm_sRGB &&
+        f != MTLPixelFormatRGBA16Float && f != MTLPixelFormatRGB10A2Unorm) return nil;
+    CGFloat fs = MAX(14, round(s.outH / 60.0));
+    NSString *text = [NSString stringWithFormat:@"WYNIX Boost  MetalFX %lux%lu -> %lux%lu",
+                      (unsigned long)s.inW, (unsigned long)s.inH, (unsigned long)s.outW, (unsigned long)s.outH];
+    CTFontRef font = CTFontCreateWithName(CFSTR("Helvetica-Bold"), fs, NULL);
+    CFStringRef keys[] = { kCTFontAttributeName, kCTForegroundColorFromContextAttributeName };
+    CFTypeRef vals[] = { font, kCFBooleanTrue };
+    CFDictionaryRef attrs = CFDictionaryCreate(NULL, (const void **)keys, (const void **)vals, 2,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFAttributedStringRef as = CFAttributedStringCreate(NULL, (__bridge CFStringRef)text, attrs);
+    CTLineRef line = CTLineCreateWithAttributedString(as);
+    CGFloat pad = fs * 0.5;
+    size_t w = (size_t)ceil(CTLineGetTypographicBounds(line, NULL, NULL, NULL) + 2 * pad), h = (size_t)ceil(fs * 1.6);
+    NSMutableData *px = nil;
+    if (w <= s.outW / 2 && h <= s.outH / 4) {
+        px = [NSMutableData dataWithLength:w * h * 4];
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef cg = CGBitmapContextCreate(px.mutableBytes, w, h, 8, w * 4, cs,
+            kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);  // BGRA bytes
+        if (cg) {
+            CGContextSetRGBFillColor(cg, 0, 0, 0, 1);
+            CGContextFillRect(cg, CGRectMake(0, 0, w, h));
+            CGContextSetRGBFillColor(cg, 1, 1, 1, 1);
+            CGContextSetTextPosition(cg, pad, fs * 0.45);
+            CTLineDraw(line, cg);
+            CGContextRelease(cg);
+        } else px = nil;
+        CGColorSpaceRelease(cs);
+    }
+    CFRelease(line); CFRelease(as); CFRelease(attrs); CFRelease(font);
+    if (!px) return nil;
+    const uint8_t *src = px.bytes;
+    NSUInteger bpp = f == MTLPixelFormatRGBA16Float ? 8 : 4;
+    NSMutableData *out = f == MTLPixelFormatBGRA8Unorm || f == MTLPixelFormatBGRA8Unorm_sRGB ? px
+                       : [NSMutableData dataWithLength:w * h * bpp];
+    if (f == MTLPixelFormatRGBA16Float) {
+        __fp16 *d = out.mutableBytes;
+        for (size_t i = 0; i < w * h; i++) {  // text is white on black: gamma-encoded values are fine
+            d[4*i] = src[4*i+2] / 255.0f; d[4*i+1] = src[4*i+1] / 255.0f; d[4*i+2] = src[4*i] / 255.0f; d[4*i+3] = 1;
+        }
+    } else if (f == MTLPixelFormatRGB10A2Unorm) {
+        uint32_t *d = out.mutableBytes;
+        for (size_t i = 0; i < w * h; i++) {
+            uint32_t r = src[4*i+2] * 1023 / 255, g = src[4*i+1] * 1023 / 255, b = src[4*i] * 1023 / 255;
+            d[i] = r | (g << 10) | (b << 20) | (3u << 30);
+        }
+    }
+    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:f width:w height:h mipmapped:NO];
+    id<MTLTexture> t = [dev newTextureWithDescriptor:td];
+    [t replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:out.bytes bytesPerRow:w * bpp];
+    return t;
+}
+
 // Swaps a proxy for its real drawable after encoding the upscale into this command buffer.
 static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> drawable) {
     if (![(NSObject *)drawable isKindOfClass:[WynixProxyDrawable class]]) return drawable;
@@ -221,6 +285,18 @@ static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> draw
         scaler.colorTexture = p.texture;
         scaler.outputTexture = p.real.texture;
         [scaler encodeToCommandBuffer:cb];
+        if (gLabel) {
+            WynixLayerState *st = p.state;
+            if (!st.labelTried) { st.labelTried = YES; @try { st.label = makeLabel(st, cb.device); } @catch (id e) {} }
+            id<MTLTexture> l = st.label, dst = p.real.texture;
+            if (l && dst.pixelFormat == l.pixelFormat && dst.width >= l.width && dst.height >= l.height) {
+                id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
+                [b copyFromTexture:l sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                        sourceSize:MTLSizeMake(l.width, l.height, 1) toTexture:dst destinationSlice:0
+                  destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+                [b endEncoding];
+            }
+        }
     }
     return p.real;
 }
@@ -265,6 +341,7 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     const char *on = getenv("WYNIX_UPSCALE");
     if (!on || strcmp(on, "1") != 0) return;
     gLog = getenv("WYNIX_UPSCALE_LOG") != NULL;
+    gLabel = getenv("WYNIX_UPSCALE_LABEL") && strcmp(getenv("WYNIX_UPSCALE_LABEL"), "1") == 0;
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
     const char *to = getenv("WYNIX_UPSCALE_OUTPUT");
     if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }
