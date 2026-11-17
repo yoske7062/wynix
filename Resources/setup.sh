@@ -218,8 +218,15 @@ stop_wrapper() {
   return 1
 }
 
-# After Play: once every process of the game's install folder has exited, close the Steam
-# that Play started, so nothing stays running in the background.
+# After Play: once the game's processes have exited and no game from any Steam library has run
+# for STEAM_GRACE_SECONDS, close the Steam that Play started. The grace period keeps Steam warm
+# so the next Play skips Steam's ~25 s cold start inside Wine, without leaving it running.
+STEAM_GRACE_SECONDS="${STEAM_GRACE_SECONDS:-300}"
+
+any_steam_game_running() {
+  /usr/bin/pgrep -if 'steamapps.common.' >/dev/null  # pgrep never matches itself
+}
+
 stop_steam_after_game() {
   local install_dir="$1"
   (
@@ -227,8 +234,12 @@ stop_steam_after_game() {
       /bin/ps -axo command= | /usr/bin/grep -Fq "common\\${install_dir}" && break
       /bin/sleep 1
     done
-    while /bin/ps -axo command= | /usr/bin/grep -Fq "common\\${install_dir}"; do /bin/sleep 3; done
-    /bin/sleep 5
+    idle=0
+    while (( idle < STEAM_GRACE_SECONDS )); do
+      if any_steam_game_running; then idle=0; else idle=$(( idle + 5 )); fi
+      steam_client_is_running || exit 0  # user closed Steam themselves
+      /bin/sleep 5
+    done
     stop_wrapper
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
