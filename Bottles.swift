@@ -2063,7 +2063,7 @@ struct BottleSidePanel: View {
             simpleToggle("Record performance (benchmark)", detail: "Saves frame times while you play and shows average FPS, 1% low and frame time when the game ends",
                          isOn: store.benchmarking(bottle)) { store.setBenchmarking(bottle, $0) }
             benchmarkList
-            simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
+            simpleToggle("DirectX 11 compatibility mode", detail: "Only for DirectX 11 games that look wrong or run worse with the default.",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
             if D3DMetalSwap.stagedAvailable, let version = store.d3dmetalVersion(bottle) {
                 simpleToggle("Use D3DMetal 3.0 (compatibility)",
@@ -2741,5 +2741,18 @@ enum GameModeSafety {
         return modes.indices
             .filter { modes[$0].w == current.w && modes[$0].h == current.h && abs(modes[$0].hz - 60) <= 1 }
             .min { abs(modes[$0].hz - 60) < abs(modes[$1].hz - 60) }
+    }
+}
+
+enum GameProcess {
+    /// True when any process command line contains `marker` (e.g. `common\\Game`).
+    static func isRunning(_ marker: String) -> Bool {
+        let p = Process(), out = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps"); p.arguments = ["-axo", "command="]
+        p.standardOutput = out; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).contains(marker)
     }
 }

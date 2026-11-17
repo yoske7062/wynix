@@ -738,6 +738,7 @@ struct GameLibraryView: View {
     @State private var pendingPlay: SteamGame?
     @State private var pendingAPI: GameAPI = .unknown
     @State private var benchGame: (name: String, since: Date)?
+    @State private var benchWatch: Task<Void, Never>?
 
     private var steamBottle: Bottle? { store.bottles.first { $0.isSteam } }
 
@@ -780,10 +781,34 @@ struct GameLibraryView: View {
         let renderer = steamBottle.map { store.boost($0) ? "dxmt" : "d3dmetal" } ?? ""
         model.play(game, renderer: renderer, status: status)
         GameModeBooster.shared.engage { [model] in model.message = $0 }
-        if let b = steamBottle, store.benchmarking(b) { benchGame = (game.name, Date()) }
+        if let b = steamBottle, store.benchmarking(b) {
+            benchGame = (game.name, Date())
+            watchGameEnd(game, bottle: b)
+        }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { startingID = game.id }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
             if startingID == game.id { withAnimation { startingID = nil } }
+        }
+    }
+
+    /// Shows the benchmark card when the game process exits (polls ps every 5 s, gives up after 6 h).
+    /// The Steam-close trigger below is the fallback; whichever fires first clears `benchGame`, so the card shows once.
+    private func watchGameEnd(_ game: SteamGame, bottle: Bottle) {
+        benchWatch?.cancel()
+        let marker = "common\\\(game.installDirectory)"
+        let since = Date()
+        benchWatch = Task {
+            var seen = false
+            while !Task.isCancelled && Date().timeIntervalSince(since) < 6 * 3600 {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                let running = await Task.detached { GameProcess.isRunning(marker) }.value
+                if running { seen = true } else if seen {
+                    guard let g = benchGame else { return }
+                    benchGame = nil
+                    store.reportBenchmark(bottle, game: g.name, since: g.since)
+                    return
+                }
+            }
         }
     }
 
@@ -820,14 +845,6 @@ struct GameLibraryView: View {
                     }
                     .disabled(model.operationInProgress)
 
-                    if let steam = steamBottle {
-                        Toggle(isOn: Binding(get: { store.boost(steam) }, set: { store.setBoost(steam, $0) })) {
-                            Label("DXMT", systemImage: "bolt.badge.clock")
-                        }
-                        .toggleStyle(.button)
-                        .help("DirectX 11 compatibility mode (DXMT): only for DirectX 11 games that look wrong or run worse on the default. Restart Steam to apply.")
-                    }
-
                     if model.isSteamRunning {
                         Button { confirmQuitSteam = true } label: {
                             Label("Quit Steam", systemImage: "power")
@@ -852,15 +869,7 @@ struct GameLibraryView: View {
                     }
                 }
             }
-            .padding(.bottom, steamBottle.map { store.boost($0) } == true ? 8 : 22)
-
-            if let steam = steamBottle, store.boost(steam) {
-                Label("Boost is on: in each game's video settings choose 1600×900 (fullscreen). DirectX 11 games only; restart Steam if it was open.",
-                      systemImage: "bolt.badge.clock")
-                    .font(.app(.callout))
-                    .foregroundStyle(.steamyAccent)
-                    .padding(.bottom, 14)
-            }
+            .padding(.bottom, 22)
 
             if model.state == .checking {
                 Spacer()
@@ -924,6 +933,7 @@ struct GameLibraryView: View {
         .onChange(of: model.isSteamRunning) { _, running in  // game session over: show the benchmark
             guard !running, let g = benchGame, let b = steamBottle else { return }
             benchGame = nil
+            benchWatch?.cancel()
             store.reportBenchmark(b, game: g.name, since: g.since)
         }
         .onAppear {

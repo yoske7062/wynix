@@ -121,6 +121,10 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(playBlock.contains("steam_is_running") && !playBlock.contains("steam_stalled_cleanup_failed"), "stalled wrapper branch must not stop Steam")
         precondition(playBlock.contains("game_may_be_running") && setup.contains("rm -f \"$renderer_mark\""), "renderer switch guard / marker clear missing")
         precondition(app.contains("applyAndPlay") && !app.contains("Optimize before playing?"), "auto profile prompt missing")
+        precondition(!app.contains("Label(\"DXMT\"") && !app.contains("Boost is on: in each"), "games toolbar DXMT control/banner must be gone")
+        precondition(src.contains("\"DirectX 11 compatibility mode\"") && src.contains("run worse with the default."), "bottle DXMT wording")
+        precondition(app.contains("watchGameEnd") && app.contains("6 * 3600") && app.contains("5_000_000_000") && app.contains("benchGame = nil"), "benchmark must follow game exit (5 s poll, 6 h cap, show once)")
+        precondition(GameProcess.isRunning("bottles_check") && !GameProcess.isRunning("zz-no-such-process-\(getpid())-x"), "GameProcess.isRunning")
         let path = CommandLine.arguments[1]
         guard FileManager.default.fileExists(atPath: path) else { print("SKIP: no bottle at \(path)"); return }
         let root = URL(fileURLWithPath: path)
