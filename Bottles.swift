@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -355,9 +356,46 @@ final class LockedData: @unchecked Sendable {
 
 /// Swaps a bottle's renderer/d3dmetal between Apple's D3DMetal 3.0 (shipped) and 4.0 beta (staged).
 /// The 3.0 folder is kept as renderer/d3dmetal-3.0 and never deleted while 4 is active.
-/// ponytail: 4.0b3 is staged by hand in ~/Library/Application Support/Steamy/D3DMetal/4.0b3 on the
-/// owner's Mac only; shipping it to other users needs a download step later (until then they stay on 3.0).
+/// 4.0b3 is staged in ~/Library/Application Support/Steamy/D3DMetal/4.0b3, downloaded once from the
+/// WYNIX site (SHA-256 pinned below); until then, or if the download fails, bottles stay on 3.0.
 enum D3DMetalSwap {
+    static let downloadURL = "https://wynix.vercel.app/downloads/d3dmetal-4.0b3.tar.xz"
+    static let expectedSHA256 = "189c582f3cea43834fa155cca060cc500954a100549c072822b6a0f457360c7c"
+
+    static func sha256(of file: URL) -> String? {
+        guard let d = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
+        return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// True only when the file's SHA-256 equals `expected` (case-insensitive).
+    static func verify(_ file: URL, expected: String = expectedSHA256) -> Bool {
+        sha256(of: file) == expected.lowercased()
+    }
+
+    /// Blocking: download, verify, extract to a temp dir, then move into `staged`. Call off the main thread.
+    static func downloadAndStage(from url: String = downloadURL, expected: String = expectedSHA256, to staged: URL = staged) throws {
+        let fm = FileManager.default
+        let work = staged.deletingLastPathComponent().appendingPathComponent(".download-\(UUID().uuidString)")
+        try fm.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: work) }
+        func run(_ exe: String, _ args: [String]) throws {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
+            try p.run(); p.waitUntilExit()
+            guard p.terminationStatus == 0 else { throw CocoaError(.fileReadUnknown) }
+        }
+        let archive = work.appendingPathComponent("d3dmetal.tar.xz"), out = work.appendingPathComponent("out")
+        try run("/usr/bin/curl", ["--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+                                  "--fail", "--location", "--retry", "2", "--silent", "--show-error", "--output", archive.path, url])
+        guard verify(archive, expected: expected) else { throw CocoaError(.fileReadCorruptFile) }
+        try fm.createDirectory(at: out, withIntermediateDirectories: true)
+        try run("/usr/bin/tar", ["-xJf", archive.path, "-C", out.path])
+        guard fm.fileExists(atPath: out.appendingPathComponent("external/D3DMetal.framework").path) else { throw CocoaError(.fileReadCorruptFile) }
+        try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", out.path])
+        try? fm.removeItem(at: staged)
+        try fm.moveItem(at: out, to: staged)  // same volume: atomic
+    }
+
     static let staged = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Steamy/D3DMetal/4.0b3")
     static var stagedAvailable: Bool {
@@ -1151,10 +1189,31 @@ final class BottleStore: ObservableObject {
 
     /// Optimize / Play: move to 4 unless the user chose 3.0. Silent; skipped while Wine runs (next time).
     func applyD3DMetalPreference(_ bottle: Bottle) {
-        guard D3DMetalSwap.stagedAvailable, !wantsD3DMetal3(bottle) else { return }
+        guard !wantsD3DMetal3(bottle) else { return }
+        guard D3DMetalSwap.stagedAvailable else { downloadD3DMetal4(then: bottle); return }
         let is4 = d3dmetalVersion(bottle)?.hasPrefix("4") == true
         if !is4 { setD3DMetal4(bottle, on: true, quiet: true) }
         else { setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+    }
+
+    private var d3dmetalDownloadTried = false
+
+    /// Background download of D3DMetal 4 (once per session). Never blocks Play: the caller carries on
+    /// with 3.0, and the swap happens when the download lands (or next launch if Wine is running).
+    private func downloadD3DMetal4(then bottle: Bottle) {
+        guard !d3dmetalDownloadTried else { return }
+        d3dmetalDownloadTried = true
+        let showing = activity == nil
+        if showing { activity = "Downloading D3DMetal 4…" }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let ok = (try? D3DMetalSwap.downloadAndStage()) != nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if showing { self.activity = nil }
+                if ok { self.applyD3DMetalPreference(bottle) }
+                else { self.alertMessage = "Could not download D3DMetal 4; staying on 3.0." }
+            }
+        }
     }
 
     /// DXMT/upscaler/HUD env vars are read when Wine starts, so a running bottle needs a restart.

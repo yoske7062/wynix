@@ -54,7 +54,7 @@
   ],
   "redirects": [
     {
-      "source": "/((?!version\\.json$|soon\\.html$|favicon\\.png$).*)",
+      "source": "/((?!version\\.json$|soon\\.html$|favicon\\.png$|downloads/).*)",
       "destination": "/soon.html",
       "permanent": false
     }

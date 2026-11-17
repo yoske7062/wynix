@@ -81,6 +81,17 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
             precondition(ver() == "4.0b3", "second swap to 4")
             try? fm.removeItem(at: root)
         }
+        // D3DMetal download verification: pinned hash accepts only matching bytes.
+        do {
+            let f = FileManager.default.temporaryDirectory.appendingPathComponent("wynix-sha-\(UUID().uuidString)")
+            try! Data("abc".utf8).write(to: f)
+            let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            precondition(D3DMetalSwap.verify(f, expected: abc), "sha256 match")
+            precondition(!D3DMetalSwap.verify(f, expected: String(abc.reversed())), "sha256 mismatch rejected")
+            precondition(!D3DMetalSwap.verify(f), "wrong file does not match pinned hash")
+            precondition(D3DMetalSwap.expectedSHA256.count == 64, "pinned hash shape")
+            try? FileManager.default.removeItem(at: f)
+        }
         // Per-game DirectX detector on fake folders.
         let fm = FileManager.default
         func fake(_ files: [String: String]) -> URL {

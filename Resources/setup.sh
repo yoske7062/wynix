@@ -235,9 +235,9 @@ stop_wrapper() {
 }
 
 # After Play: once the game's processes have exited and no game from any Steam library has run
-# for STEAM_GRACE_SECONDS, close the Steam that Play started. The grace period keeps Steam warm
-# so the next Play skips Steam's ~25 s cold start inside Wine, without leaving it running.
-STEAM_GRACE_SECONDS="${STEAM_GRACE_SECONDS:-300}"
+# for STEAM_GRACE_SECONDS, close the Steam that Play started. Keep resources free: the short
+# delay only avoids racing a game that relaunches itself.
+STEAM_GRACE_SECONDS="${STEAM_GRACE_SECONDS:-5}"
 
 any_steam_game_running() {
   /usr/bin/pgrep -if 'steamapps.common.' >/dev/null  # pgrep never matches itself
