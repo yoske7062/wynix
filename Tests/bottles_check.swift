@@ -41,7 +41,7 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         DispatchQueue.concurrentPerform(iterations: 50) { _ in locked.append(Data(count: 10)) }
         precondition(locked.data.count == 500, "LockedData lost bytes")
         let store = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
-        precondition(store.contains("guard bottleExists(bottle) else { return }") && store.contains("fileExists(atPath: bottle.url.path) else { return false }"), "optimize/dxmt.conf must not recreate a deleted bottle")
+        precondition(store.contains("guard bottleExists(bottle) else { completion?(); return }") && store.contains("fileExists(atPath: bottle.url.path) else { return false }"), "optimize/dxmt.conf must not recreate a deleted bottle")
         precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
         // Per-game DirectX detector on fake folders.
         let fm = FileManager.default
