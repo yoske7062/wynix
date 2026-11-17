@@ -250,7 +250,7 @@ final class InstallerModel: ObservableObject {
                 }
                 if let next = self?.pendingPlay {
                     self?.pendingPlay = nil
-                    if finished.terminationStatus == 0 { self?.play(next) }
+                    self?.play(next)  // runs even after a failed or timed-out task
                 }
             }
         }
@@ -258,6 +258,15 @@ final class InstallerModel: ObservableObject {
         process = task
         do {
             try task.run()
+            // watchdog: a hung setup.sh must never keep `process` set (and Play queued) forever
+            let limit: TimeInterval = ["play", "list-games", "create-shortcut", "launch", "check"].contains(mode) ? 90 : 3600
+            DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self, weak task] in
+                guard let self, let task, self.process === task, task.isRunning else { return }
+                self.message = L10n.string("error.taskTimedOut")
+                kill(-task.processIdentifier, SIGTERM)  // no-op unless it leads a group
+                task.terminate()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if task.isRunning { kill(task.processIdentifier, SIGKILL) } }
+            }
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
             process = nil

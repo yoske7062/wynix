@@ -83,11 +83,14 @@ steam_process_candidates() {
   '
 }
 
+# Bounds a command that can hang (lsof, wine reg) so Play never waits forever. Usage: with_timeout SECONDS cmd...
+with_timeout() { /usr/bin/perl -e 'alarm shift; exec @ARGV' "$@"; }
+
 process_belongs_to_wrapper() {
   local pid="$1"
   local contents_path
   contents_path="$(cd "$WRAPPER/Contents" && pwd -P)/"
-  /usr/sbin/lsof -a -p "$pid" -d cwd,txt -Fn 2>/dev/null \
+  with_timeout 5 /usr/sbin/lsof -a -p "$pid" -d cwd,txt -Fn 2>/dev/null \
     | /usr/bin/grep -Fq "n$contents_path"
 }
 
@@ -107,7 +110,7 @@ wrapper_has_named_process() {
   for process_name in "$@"; do
     lsof_args+=(-c "$process_name")
   done
-  /usr/sbin/lsof "${lsof_args[@]}" 2>/dev/null \
+  with_timeout 5 /usr/sbin/lsof "${lsof_args[@]}" 2>/dev/null \
     | /usr/bin/grep -Fq "n$contents_path"
 }
 
@@ -166,7 +169,7 @@ steam_bottle_reg() {
   (
     export WINEPREFIX="$PREFIX_ROOT" WINEDEBUG=-all WINEMSYNC=1 WINEESYNC=1
     export DYLD_FALLBACK_LIBRARY_PATH="$WRAPPER/Contents/Frameworks/moltenvkcx:$WRAPPER/Contents/SharedSupport/wine/lib:$WRAPPER/Contents/Frameworks:/usr/lib"
-    "$WRAPPER/Contents/SharedSupport/wine/bin/wine" reg "$@" >/dev/null 2>&1
+    with_timeout 20 "$WRAPPER/Contents/SharedSupport/wine/bin/wine" reg "$@" >/dev/null 2>&1
   ) || true
 }
 
@@ -450,7 +453,8 @@ if [[ "${1:-setup}" == "play" ]]; then
   /usr/bin/sed "s/__STEAM_APP_ID__/$app_id/g" "$SCRIPT_DIR/game_launch.bat.template" > "$play_bat"
   # The bat starts Steam itself with -silent when it isn't running, so only the game shows.
   steam_was_running=0
-  if steam_client_is_running; then
+  # Booting (wrapper up, client not ready): an earlier Play owns the cold start; just hand over the applaunch.
+  if steam_client_is_running || steam_is_running; then
     steam_was_running=1
   else
     configure_wrapper_plist "$PLIST"

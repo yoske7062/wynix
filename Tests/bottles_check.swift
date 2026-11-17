@@ -31,6 +31,10 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")
         precondition(src.contains("if list != bottles"), "reload must not republish an unchanged list")
         precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
+        let setup = (try? String(contentsOfFile: CommandLine.arguments[2].replacingOccurrences(of: "MacSteamSetupApp.swift", with: "Resources/setup.sh"), encoding: .utf8)) ?? ""
+        precondition(app.contains("watchdog") && app.contains("error.taskTimedOut"), "run() watchdog missing")
+        precondition(!app.contains("if finished.terminationStatus == 0 { self?.play(next) }"), "queued play must run after failures too")
+        precondition(setup.contains("with_timeout 5 /usr/sbin/lsof") && setup.contains("with_timeout 20 \"$WRAPPER"), "play path must bound lsof and wine reg")
         let opt = src.components(separatedBy: "func optimizeForGaming")[1].components(separatedBy: "func optimizeAll")[0]
         precondition(opt.contains("EmulateModeset"), "Optimize must set EmulateModeset (display-mode fix)")
         let locked = LockedData()

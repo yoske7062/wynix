@@ -11,6 +11,7 @@
 "disclaimer.unaffiliated" = "Unofficial project not affiliated with, endorsed by, or sponsored by Valve, Apple, or Sikarugir.";
 "error.internalScriptMissing" = "The setup files inside the app could not be found.";
 "error.seeLog" = "Setup did not finish. Click Try Again.";
+"error.taskTimedOut" = "That took too long and was stopped. Try again.";
 "games.createShortcut" = "Create Shortcut";
 "games.empty" = "No Installed Games";
 "games.empty.detail" = "Install a game in Windows Steam, then refresh this list.";
