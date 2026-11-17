@@ -2616,7 +2616,8 @@ struct InstallSheet: View {
                             Label {
                                 Text(bottle.name)
                             } icon: {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: bottle.url.path))
+                                // Sikarugir's wrapper icon (wine barrel) looks out of place here.
+                                Image(systemName: bottle.isSteam ? "gamecontroller.fill" : "macwindow")
                             }.tag(Optional(bottle.id))
                         }
                     }
@@ -2628,6 +2629,7 @@ struct InstallSheet: View {
                      ? "No bottles yet. Set up Steam or make a new bottle first."
                      : "Each bottle is a separate Windows. Steam games go in Steam.")
                     .font(.app(.caption)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
