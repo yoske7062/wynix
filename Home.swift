@@ -270,7 +270,7 @@ struct SettingsView: View {
     @AppStorage(Tutorial.doneKey) private var tutorialDone = false
     @AppStorage("gameMode") private var gameMode = true
     @AppStorage("cap60Hz") private var cap60Hz = false
-    @AppStorage(Prewarm.key) private var prewarm = true
+    @AppStorage(Prewarm.key) private var prewarm = false
     @AppStorage("bottleStorage") private var storage = BottleStore.externalVolumes.first?.path ?? "local"
 
     var body: some View {

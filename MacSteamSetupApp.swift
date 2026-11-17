@@ -1081,7 +1081,7 @@ enum Prewarm {
     static let hiddenLimit: TimeInterval = 300
     nonisolated(unsafe) private static var hiddenTask: DispatchWorkItem?
 
-    static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+    static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? false }  // off by default: Steam idling in Wine warms fanless Macs
 
     /// Battery under 20% (unplugged) or Low Power Mode: stay quiet.
     static var powerAllows: Bool {
