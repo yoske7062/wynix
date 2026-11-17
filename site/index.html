@@ -386,8 +386,8 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
             <div class="act" data-go="exe"><strong>Install a Program</strong>Pick a Windows installer (.exe or .msi)</div>
             <div class="act"><strong>Optimized ✓</strong>Best settings already on</div>
             <label><span><strong>Sharper Graphics</strong>Looks crisper, but games run slower</span><input type="checkbox"></label>
-            <label><span><strong>Boost</strong>1600×900 upscaled by MetalFX at a steady 60 FPS (DX11)</span><input type="checkbox" checked></label>
-            <label><span><strong>Show FPS Counter</strong>Frame rate and GPU load while you play</span><input type="checkbox" checked></label>
+            <label><span><strong>Boost</strong>Renders at a lower resolution and Apple's MetalFX upscales it (up to 1080p)</span><input type="checkbox" checked></label>
+            <label><span><strong>Show FPS / advanced stats</strong>Overlay with a "WYNIX Boost" label while you play</span><input type="checkbox" checked></label>
             <label><span><strong>Mac Keyboard Shortcuts</strong>⌘C, ⌘V and ⌘Z work like on your Mac</span><input type="checkbox" checked></label>
             <label><span><strong>Stop Steam Auto-Updates</strong>Keeps Steam stable so nothing breaks</span><input type="checkbox" checked></label>
           </div>
@@ -413,11 +413,11 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
         <ul class="opt">
           <li><b>MSync on</b>Apple-native thread sync, lowest CPU overhead.</li>
           <li><b>Real GPU info</b>Games see your actual GPU and VRAM and pick sane presets.</li>
-          <li><b>Standard resolution</b>Renders at point resolution instead of Retina: the biggest FPS gain.</li>
+          <li><b>Standard resolution</b>Renders at point resolution instead of Retina, which is lighter on the GPU.</li>
           <li><b>Exclusive fullscreen</b>Fullscreen games skip the window compositor.</li>
           <li><b>macOS Game Mode + no App Nap</b>Marks bottles as games so macOS prioritizes them and never throttles them.</li>
-          <li><b>DLSS via MetalFX</b>Games with DLSS get Apple's MetalFX upscaling and frame generation.</li>
-          <li><b>60 FPS cap</b>Games stop at a steady 60 so your Mac stays cooler.</li>
+          <li><b>DLSS via MetalFX</b>Games with DLSS get DLSS to MetalFX. Games without DLSS can use MetalFX Boost.</li>
+          <li><b>60 FPS cap</b>DirectX 11 Boost and DirectX 12 (D3DMetal) games are capped at 60, which suits fanless Macs.</li>
         </ul>
         <div class="acts"><button class="mb" data-close>Cancel</button><button class="mb pri" data-close>Optimize</button></div>
       </div></div>
@@ -437,7 +437,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
           <details><summary>Games</summary><p>Every Steam game you installed. Press Play.</p></details>
           <details><summary>Bottles</summary><p>A small Windows setup inside WYNIX with its own programs and settings.</p></details>
           <details><summary>Install from File</summary><p>Runs any Windows installer (.exe or .msi), games or not.</p></details>
-          <details><summary>Boost</summary><p>1600×900 sharpened by MetalFX to your screen at a steady 60 FPS. DirectX 11 games.</p></details>
+          <details><summary>Boost</summary><p>The game renders at a lower resolution and Apple's MetalFX upscales it, up to 1080p. DirectX 12 games on D3DMetal, and DirectX 11 games with DXMT (60 FPS cap).</p></details>
         </div>
         <button class="mb x" data-close>Close</button>
       </div></div>
@@ -489,22 +489,25 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
 <section id="why" class="wrap">
   <h2 data-up>You could buy Windows. <span>Or you could <em class="acc">just play</em>.</span></h2>
-  <p class="lead" data-up>Paying for Windows to play games you already own? Bold. Running a virtual machine that turns your MacBook into a space heater? Bolder. Rebooting into another OS every night? We respect the commitment.</p>
+  <p class="lead" data-up>Paying for Windows to play games you already own? Bold. Running a whole second OS in a virtual machine? Bolder. Rebooting into another OS every night? We respect the commitment.</p>
   <p class="lead" data-up><b>WYNIX isn't an emulator.</b> It translates what a Windows game asks for into Metal, on the fly, so the game runs next to your other Mac apps like it belongs there.</p>
 
   <div class="why" data-list>
     <div><b>Playing in minutes</b><p>One click installs Steam. Sign in to Steam and your library is there.</p></div>
-    <div><b>Tuned for every game</b><p>WYNIX picks D3DMetal, DXMT or DXVK for each title so you don't have to.</p></div>
-    <div><b>Boost when you need it</b><p>MetalFX upscaling for extra frames and a 60 FPS cap that keeps things smooth.</p></div>
-    <div><b>Your Mac stays cool</b><p>Game Mode quiets background apps. Steam stays hidden until you need it.</p></div>
+    <div><b>A profile per game</b><p>On Play, WYNIX detects whether the game is DirectX 11 or 12 and offers the best setup in one click: "Apply and Play" or "Play without changes".</p></div>
+    <div><b>MetalFX Boost</b><p>The game renders at a lower resolution and Apple's MetalFX upscales it, up to 1080p. No DLSS needed. DLSS games still get DLSS to MetalFX.</p></div>
+    <div><b>Easy on your Mac</b><p>Game Mode lowers background apps' priority while you play. A 60 FPS cap on DirectX 12 helps fanless Macs.</p></div>
     <div><b>Also does launchers</b><p>Battle.net and Epic install the same way. One click each.</p></div>
-    <div><b>No trial. No countdown.</b><p>Nothing expires on day 14. Or day 400.</p></div>
+    <div><b>Built to keep working</b><p>Play never gets stuck. Steam stays warm for 5 minutes so the next game opens in seconds, and you get clear messages when you are offline or your games drive is unplugged.</p></div>
+    <div><b>Latest Apple tech</b><p>Built on Apple's D3DMetal 4 (Game Porting Toolkit 4, beta), with D3DMetal 3.0 kept as a compatibility fallback.</p></div>
+    <div><b>See what it does</b><p>Show FPS / advanced stats overlay, with a "WYNIX Boost" label when Boost is on.</p></div>
+    <div><b>No trial. No countdown.</b><p>Free, nothing expires.</p></div>
   </div>
 </section>
 
 <section id="games" class="wrap">
   <h2 data-up>Built for the <em class="acc">big ones</em>.</h2>
-  <p class="lead" data-up>Every game gets the right translation layer automatically: <b>D3DMetal for DirectX 12, DXMT for DirectX 11</b>. Then one click on <b>Optimize</b> adds <b>MetalFX Boost</b> for extra frames, a <b>steady 60 FPS</b> cap and Game Mode to keep your Mac cool.</p>
+  <p class="lead" data-up>WYNIX detects each game and offers the right setup: <b>D3DMetal 4 (beta) for DirectX 12, DXMT for DirectX 11</b>. <b>MetalFX Boost</b> renders at a lower resolution and upscales it, <b>DirectX 11 Boost</b> adds a 60 FPS cap, and Game Mode lowers background apps' priority.</p>
 </section>
 <div class="wall" data-up>
   <div class="trk" id="trk">
@@ -519,26 +522,20 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 <p class="wrap fine" style="margin-top:20px">Artwork shown for reference, not a compatibility promise.</p>
 
 <section id="compare" class="wrap">
-  <h2 data-up>Side by side. <span>Not <em class="acc">close</em>.</span></h2>
+  <h2 data-up>Side by <em class="acc">side</em>.</h2>
   <div class="scroll" data-up>
   <table class="cmp">
-    <thead><tr><th></th><th class="us"><span class="acc">WYNIX</span></th><th>CrossOver</th><th>Parallels + Windows</th></tr></thead>
+    <thead><tr><th></th><th class="us"><span class="acc">WYNIX</span></th><th>CrossOver</th><th>Parallels</th><th>Whisky</th></tr></thead>
     <tbody>
-      <tr><td>Price</td><td class="us"><span class="acc">Free</span></td><td>$54, 12 months of updates</td><td>$99.99/yr + Windows</td></tr>
-      <tr><td>Free trial ends</td><td class="y">Never</td><td class="n">Day 14</td><td class="n">Day 14</td></tr>
-      <tr><td>CPU and memory your game can use</td><td class="y">Your whole Mac</td><td class="y">Your whole Mac</td><td class="n">4 cores, 8 GB on Standard</td></tr>
-      <tr><td>No Windows license</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">No</td></tr>
-      <tr><td>Picks the graphics layer per game</td><td class="y">Automatic</td><td class="n">Manual</td><td class="n">Not needed, runs Windows</td></tr>
-      <tr><td>Account needed</td><td class="y">No account, ever</td><td class="n">CodeWeavers account</td><td class="n">Parallels account + Microsoft</td></tr>
-      <tr><td>Game library with Play button</td><td class="y">Your games, cover art, one click</td><td class="n">Bottles and launchers</td><td class="n">A Windows desktop</td></tr>
-      <tr><td>One-click Optimize</td><td class="y">Yes</td><td class="n">Tweak it yourself</td><td class="n">Tweak Windows yourself</td></tr>
-      <tr><td>Quiets Discord, browsers while you play</td><td class="y">Game Mode built in</td><td class="n">No</td><td class="n">No</td></tr>
-      <tr><td>Runs any .exe, not just games</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes, inside a VM</td></tr>
-      <tr><td>Kernel anti-cheat games</td><td class="n">No</td><td class="n">No</td><td class="n">Some</td></tr>
+      <tr><td>Price</td><td class="us"><span class="acc">Free</span></td><td>Paid, from ~US$54</td><td>Subscription</td><td>Discontinued in 2025</td></tr>
+      <tr><td>One-click Steam</td><td class="y">Yes</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td></tr>
+      <tr><td>Per-game auto profile</td><td class="y">Yes</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td></tr>
+      <tr><td>MetalFX upscaling for games without DLSS</td><td class="y">Yes</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td></tr>
+      <tr><td>D3DMetal</td><td class="y">D3DMetal 4 (beta)</td><td class="n">D3DMetal</td><td class="n">Windows VM, no D3DMetal</td><td class="n">D3DMetal (no longer updated)</td></tr>
     </tbody>
   </table>
   </div>
-  <p class="fine" data-up>Yes, Parallels wins the anti-cheat row. It's also the row that costs about $240 in year one.</p>
+  <p class="fine" data-up>&ldquo;&mdash;&rdquo; means not listed, not that the feature is missing. Based on public information, November 2026.</p>
 </section>
 
 <section id="faq" class="wrap">
@@ -555,7 +552,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     <!-- TODO owner: replace with the real answer to how WYNIX stays free -->
     <details><summary>How is this free?</summary><p>No ads, no trial, no account with us. You sign in to Steam, not to WYNIX.</p></details>
     <details><summary>Do my saves and achievements work?</summary><p>Yes. It's the real Steam client, so cloud saves, achievements and friends work as usual.</p></details>
-    <details><summary>Will it heat up my Mac?</summary><p>Less than a virtual machine would. Game Mode quiets other apps and the 60 FPS cap stops your Mac from working harder than it needs to.</p></details>
+    <details><summary>Will it heat up my Mac?</summary><p>Games are demanding on any Mac. WYNIX helps with Game Mode (lower priority for background apps) and a 60 FPS cap on DirectX 12 and DirectX 11 Boost, which suits fanless Macs.</p></details>
   </div>
 </section>
 
@@ -613,7 +610,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </div>
 </section>
 
-<footer><div class="wrap"><span>WYNIX. Not affiliated with Valve, Microsoft, Apple, Parallels or CodeWeavers. Game artwork and trademarks belong to their respective owners.</span><span class="flinks"><a href="/legal.html#terms">Terms</a><a href="/legal.html#privacy">Privacy</a><a href="/legal.html#donations">Donations</a><a href="/legal.html#licenses">Licenses</a></span></div></footer>
+<footer><div class="wrap"><span>WYNIX. Not affiliated with Valve, Microsoft, Apple, Parallels, CodeWeavers or Whisky. Game artwork and trademarks belong to their respective owners.</span><span class="flinks"><a href="/legal.html#terms">Terms</a><a href="/legal.html#privacy">Privacy</a><a href="/legal.html#donations">Donations</a><a href="/legal.html#licenses">Licenses</a></span></div></footer>
 
 <a class="btn lg dl sticky" id="sticky" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac, free</a>
 
