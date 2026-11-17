@@ -29,7 +29,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 /bin/chmod +x "$APP/Contents/Resources/setup.sh"
 # Sign with the stable local identity when it exists (scripts/make_signing_identity.sh), so
 # macOS keeps privacy permissions across rebuilds; otherwise fall back to ad-hoc.
-SIGN_ID="$(/usr/bin/security find-certificate -c "Steamy Local Signing" -Z 2>/dev/null | /usr/bin/awk '/SHA-1 hash/ {print $3; exit}')"
+for name in "WYNIX Local Signing" "Steamy Local Signing"; do
+  SIGN_ID="$(/usr/bin/security find-certificate -c "$name" -Z 2>/dev/null | /usr/bin/awk '/SHA-1 hash/ {print $3; exit}')"
+  [[ -n "$SIGN_ID" ]] && break
+done
 # STEAMY_ADHOC=1: unsigned test build (no keychain access, e.g. for unattended checks).
 [[ "${STEAMY_ADHOC:-0}" == 1 ]] && SIGN_ID=""
 /usr/bin/codesign --force --deep --sign "${SIGN_ID:--}" "$APP"

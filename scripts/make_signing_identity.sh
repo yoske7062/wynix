@@ -1,11 +1,11 @@
 #!/bin/bash
-# Creates a self-signed code-signing identity "Steamy Local Signing" in the login keychain.
+# Creates a self-signed code-signing identity (default "WYNIX Local Signing") in the login keychain.
 # Signing every build with the same identity keeps Steamy's code identity stable, so macOS
 # privacy permissions (TCC) granted once survive rebuilds. Ad-hoc signatures change on every
 # build, which makes macOS ask again each time. Local only; not valid for distribution.
 set -euo pipefail
 
-NAME="Steamy Local Signing"
+NAME="${1:-WYNIX Local Signing}"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if /usr/bin/security find-certificate -c "$NAME" "$KEYCHAIN" >/dev/null 2>&1; then
