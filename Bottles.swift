@@ -994,7 +994,8 @@ final class BottleStore: ObservableObject {
     /// in Launchpad, Spotlight and the Dock like any Mac app.
     @discardableResult
     func createMacApp(_ program: WinProgram, in bottle: Bottle) -> URL? {
-        let safeName = program.name.replacingOccurrences(of: #"[/:\x00-\x1F]"#, with: "-", options: .regularExpression)
+        let shownName = displayName(program, in: bottle)
+        let safeName = shownName.replacingOccurrences(of: #"[/:\x00-\x1F]"#, with: "-", options: .regularExpression)
         let app = Self.macAppsFolder.appendingPathComponent(safeName + ".app")
         let macOS = app.appendingPathComponent("Contents/MacOS")
         func quoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -1002,7 +1003,7 @@ final class BottleStore: ObservableObject {
         let info: [String: Any] = [
             "CFBundleExecutable": "launch",
             "CFBundleIdentifier": "local.steamy.app.\(abs(program.path.hashValue))",
-            "CFBundleName": program.name,
+            "CFBundleName": shownName,
             "CFBundlePackageType": "APPL",
             "LSUIElement": true,
             "LSApplicationCategoryType": "public.app-category.games"
@@ -1120,6 +1121,24 @@ final class BottleStore: ObservableObject {
         }
         plistCache[bottle.url] = nil
         objectWillChange.send()
+    }
+
+    /// Custom tile names live in the bottle's Info.plist ("WynixDisplayNames": program path -> name); no file is renamed.
+    nonisolated static func displayName(_ program: WinProgram, overrides: [String: Any]) -> String {
+        let custom = (overrides["WynixDisplayNames"] as? [String: String])?[program.path]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return custom.flatMap { $0.isEmpty ? nil : $0 } ?? program.name
+    }
+
+    func displayName(_ program: WinProgram, in bottle: Bottle) -> String {
+        Self.displayName(program, overrides: plistDictionary(bottle))
+    }
+
+    /// Empty name removes the override.
+    func setDisplayName(_ name: String, for program: WinProgram, in bottle: Bottle) {
+        var names = (plistDictionary(bottle)["WynixDisplayNames"] as? [String: String]) ?? [:]
+        let clean = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        names[program.path] = clean.isEmpty ? nil : clean
+        setPlist(bottle, ["WynixDisplayNames": names])
     }
 
     func setPlist(_ bottle: Bottle, _ values: [String: Any]) {
@@ -1573,6 +1592,7 @@ struct BottleView: View {
     @State private var windowsVersion = "…"
     @State private var openingID: String?
     @State private var pendingLaunch: WinProgram?
+    @State private var renaming: WinProgram?
 
     /// Opens a program with visible feedback: Wine apps can take several seconds to appear.
     private func launch(_ program: WinProgram, checkOptimized: Bool = true) {
@@ -1625,7 +1645,7 @@ struct BottleView: View {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 22) {
                             ForEach(programs) { program in
-                                ProgramTile(program: program, opening: openingID == program.id)
+                                ProgramTile(program: program, name: store.displayName(program, in: bottle), opening: openingID == program.id)
                                     .onTapGesture(count: 2) { launch(program) }
                                     .accessibilityAddTraits(.isButton)
                                     .accessibilityAction(named: "Open") { launch(program) }
@@ -1638,6 +1658,10 @@ struct BottleView: View {
                                         }
                                         Button("Show in Finder") {
                                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: program.path)])
+                                        }
+                                        Button("Rename…") { renaming = program }
+                                        if store.displayName(program, in: bottle) != program.name {
+                                            Button("Reset Name") { store.setDisplayName("", for: program, in: bottle) }
                                         }
                                         if program.custom {
                                             Divider()
@@ -1657,6 +1681,11 @@ struct BottleView: View {
             Divider()
             BottleSidePanel(store: store, bottle: bottle, onDeleted: onDeleted)
                 .frame(width: 290)
+        }
+        .sheet(item: $renaming) { program in
+            TextPromptSheet(title: "Rename", prompt: "Name shown on the tile (max 60 characters)", initial: store.displayName(program, in: bottle), action: "Save") { text in
+                store.setDisplayName(text, for: program, in: bottle)
+            }
         }
         .alert("Optimize before launching?", isPresented: Binding(
             get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } }
@@ -1701,6 +1730,7 @@ enum ImageCache {
 
 struct ProgramTile: View {
     let program: WinProgram
+    var name = ""
     var opening = false
     @State private var pulse = false
 
@@ -1732,7 +1762,7 @@ struct ProgramTile: View {
                     pulse = false
                 }
             }
-            Text(opening ? "Opening…" : program.name)
+            Text(opening ? "Opening…" : name)
                 .font(.app(.callout))
                 .foregroundStyle(opening ? Color.steamyAccent : Color.primary)
                 .multilineTextAlignment(.center)
@@ -1742,7 +1772,7 @@ struct ProgramTile: View {
         .contentShape(Rectangle())
         .help(program.path)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(opening ? "\(program.name), opening" : program.name)
+        .accessibilityLabel(opening ? "\(name), opening" : name)
     }
 }
 

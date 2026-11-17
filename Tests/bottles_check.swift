@@ -46,6 +46,10 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(setup.contains("with_timeout 5 /usr/sbin/lsof") && setup.contains("with_timeout 20 \"$WRAPPER"), "play path must bound lsof and wine reg")
         let opt = src.components(separatedBy: "func optimizeForGaming")[1].components(separatedBy: "func optimizeAll")[0]
         precondition(opt.contains("EmulateModeset"), "Optimize must set EmulateModeset (display-mode fix)")
+        let prog = WinProgram(name: "setup.exe", path: "/x/setup.exe")
+        precondition(BottleStore.displayName(prog, overrides: [:]) == "setup.exe", "display name default")
+        precondition(BottleStore.displayName(prog, overrides: ["WynixDisplayNames": ["/x/setup.exe": " My Game "]]) == "My Game", "display name override")
+        precondition(BottleStore.displayName(prog, overrides: ["WynixDisplayNames": ["/y": "Z", "/x/setup.exe": " "]]) == "setup.exe", "blank override ignored")
         let locked = LockedData()
         DispatchQueue.concurrentPerform(iterations: 50) { _ in locked.append(Data(count: 10)) }
         precondition(locked.data.count == 500, "LockedData lost bytes")
