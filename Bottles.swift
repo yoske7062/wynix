@@ -677,7 +677,7 @@ final class BottleStore: ObservableObject {
     /// One-click gaming profile. Every key here was checked against this engine's
     /// winemac driver and the Sikarugir launcher. Takes effect on the bottle's next start.
     func optimizeForGaming(_ bottle: Bottle, completion: (() -> Void)? = nil) {
-        guard bottleExists(bottle) else { return }
+        guard bottleExists(bottle) else { completion?(); return }
         var values: [String: Any] = [
             "WINEMSYNC": 1,                     // Apple-native sync primitives, lowest CPU overhead
             "WINEESYNC": 1,                     // fallback if MSync is unavailable
@@ -1012,6 +1012,19 @@ final class BottleStore: ObservableObject {
 
     func flag(_ bottle: Bottle, _ key: String) -> Bool {
         (plistDictionary(bottle)[key] as? NSNumber)?.intValue == 1
+    }
+
+    /// Forgets every per-game profile choice ("Play without changes" included).
+    func resetGameRecommendations(_ bottle: Bottle) {
+        var dict = plistDictionary(bottle)
+        let keys = dict.keys.filter { $0.hasPrefix("WynixGameProfile_") }
+        guard !keys.isEmpty else { return }
+        keys.forEach { dict.removeValue(forKey: $0) }
+        if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0) {
+            try? data.write(to: bottle.plist, options: .atomic)
+        }
+        plistCache[bottle.url] = nil
+        objectWillChange.send()
     }
 
     func setPlist(_ bottle: Bottle, _ values: [String: Any]) {
@@ -1655,6 +1668,9 @@ struct BottleSidePanel: View {
                         ))
                         .toggleStyle(.switch).labelsHidden()
                         .disabled(store.graphics(bottle) == .dxvk || store.graphics(bottle) == .wined3d)
+                    }
+                    SettingRow("Game recommendations") {
+                        Button("Reset") { store.resetGameRecommendations(bottle) }
                     }
                     plistToggle("MSync", key: "WINEMSYNC")
                     plistToggle("ESync", key: "WINEESYNC")

@@ -731,14 +731,15 @@ struct GameLibraryView: View {
     /// Detects the game's DirectX version (off the main thread) and, unless the bottle already has that profile, asks before applying it.
     private func play(_ game: SteamGame) {
         guard let bottle = steamBottle else { startPlay(game); return }
-        if store.plistDictionary(bottle)["WynixGameProfile_\(game.id)"] as? String == "skip" { startPlay(game); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let folder = GameAPI.steamFolder(in: bottle, installDirectory: game.installDirectory)
             let api = folder.map { GameAPI.detect(folder: $0) } ?? .unknown
             DispatchQueue.main.async {
                 // Without an installable upscaler, dx12/unknown only need plain optimization, or the dialog would loop.
                 let canUpscale = store.upscalerURL(bottle) != nil
-                let ready = store.isOptimized(bottle) && (api == .dx11 ? store.boost(bottle) : (!canUpscale || store.upscaleDX12(bottle)))
+                // "Play without changes" only holds while the recommendation is the same one that was skipped.
+                let skipped = store.plistDictionary(bottle)["WynixGameProfile_\(game.id)"] as? String == "skip:\(api == .dx11 ? "dx11" : "dx12")"
+                let ready = skipped || store.isOptimized(bottle) && (api == .dx11 ? store.boost(bottle) : (!canUpscale || store.upscaleDX12(bottle)))
                 if ready { startPlay(game) } else { pendingAPI = api; pendingPlay = game }
             }
         }
@@ -915,7 +916,7 @@ struct GameLibraryView: View {
                 .keyboardShortcut(.defaultAction)
             Button(L10n.string("play.profile.skip")) {
                 if let game = pendingPlay, let bottle = steamBottle {
-                    store.setPlist(bottle, ["WynixGameProfile_\(game.id)": "skip"])
+                    store.setPlist(bottle, ["WynixGameProfile_\(game.id)": "skip:\(pendingAPI == .dx11 ? "dx11" : "dx12")"])
                     startPlay(game)
                 }
             }

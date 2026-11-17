@@ -81,7 +81,7 @@
 "play.profile.dx12" = "Optimization + DirectX 12 Boost (MetalFX)";
 "play.profile.dx11" = "Optimization + DirectX 11 Boost (DXMT, 60 FPS)";
 "play.profile.body" = "Recommended: %@\nThis applies the best settings for this game. Steam restarts if it needs a different graphics layer.";
-"play.profile.tip" = "Tip: pick a 16:9 resolution in the game (1280×720 or 1600×900) so it fills the screen.";
+"play.profile.tip" = "Tip: pick a resolution with your screen's shape in the game (for a 16:9 monitor 1280×720 or 1600×900; for a MacBook screen 1440×900 or 1280×800) so it fills the screen.";
 "play.profile.apply" = "Apply and Play";
 "play.profile.skip" = "Play without changes";
 "play.detected.dx12" = "%@: DirectX 12 detected, applying Boost (MetalFX)…";

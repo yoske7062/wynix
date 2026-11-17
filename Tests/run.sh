@@ -168,6 +168,14 @@ CP="$tmp_part" /bin/bash -c 'trap '"'"'status=$?; /bin/rm -f "$CP"; exit "$statu
 /usr/bin/grep -q -- '--speed-time 60' "$setup_src" || fail "downloads must abort when stalled"
 [[ "$(/usr/bin/grep -c 'games_drive_missing' "$setup_src")" -ge 3 ]] || fail "list-games and play must report a missing games drive"
 /usr/bin/grep -q 'en:games_drive_missing' "$ROOT/Resources/localization.sh" && /usr/bin/grep -q 'ko:games_drive_missing' "$ROOT/Resources/localization.sh" || fail "games_drive_missing needs en and ko"
+# Behavior: only libraries outside the bottle count as an unplugged drive.
+eval "$(/usr/bin/awk '/^(all_steam_libraries|games_drive_missing)\(\) \{/{p=1} p{print} p&&/^}/{p=0}' "$setup_src")"
+WRAPPER="$tmp_dir/W.app"; PREFIX_ROOT="$WRAPPER/Contents/SharedSupport/prefix"; STEAMAPPS="$WRAPPER/Contents/drive_c/Steam/steamapps"
+steam_library_steamapps() { printf '%s\n' "$GAMES_EXTRA"; }
+GAMES_EXTRA="$PREFIX_ROOT/drive_c/Gone/steamapps"
+! games_drive_missing || fail "a missing library inside the bottle must not say the games drive is unplugged"
+GAMES_EXTRA="/Volumes/WynixNoSuchDrive/steamapps"
+games_drive_missing || fail "a missing external library must say the games drive is unplugged"
 
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"

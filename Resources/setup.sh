@@ -306,10 +306,12 @@ all_steam_libraries() {
   } | /usr/bin/awk '!seen[$0]++'
 }
 
-# True when Steam lists a library folder that isn't there (e.g. an unplugged external drive).
+# True when Steam lists an external library folder that isn't there (e.g. an unplugged external drive).
 games_drive_missing() {
   local library
   while IFS= read -r library; do
+    # Libraries inside the bottle's C: drive are not external: a missing one is not an unplugged drive.
+    [[ "$library" == "$WRAPPER/Contents/drive_c/"* || "$library" == "$PREFIX_ROOT/drive_c/"* ]] && continue
     [[ -d "$library" ]] || return 0
   done < <(all_steam_libraries)
   return 1
