@@ -26,6 +26,15 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(GameModeSafety.mode60Index(current: (2560, 1440, 120), modes: modes) == 1)
         precondition(GameModeSafety.mode60Index(current: (2560, 1440, 60), modes: modes) == nil)
         precondition(GameModeSafety.mode60Index(current: (3000, 2000, 120), modes: modes) == nil)
+        // Benchmark stats: 100 frames of 10 ms then 100 of 20 ms; first 5 s dropped (none here: skip 0 keeps all).
+        let text = "# wynix-bench v1 in=1280x720 out=1920x1080 upscale=1 d3dmetal=4.0b3\n" + (Array(repeating: "10.0", count: 100) + Array(repeating: "20.0", count: 100)).joined(separator: "\n") + "\n"
+        let b = BenchRun.parse(text, skipSeconds: 0)!
+        precondition(abs(b.avgFPS - 200 * 1000 / 3000.0) < 0.01 && abs(b.lowFPS - 50) < 0.01 && b.medianMs == 20, "bench stats")
+        precondition(b.summary.contains("66.7 avg FPS, 50.0 1% low") && b.summary.contains("D3DMetal 4.0b3, Boost on (1280x720 -> 1920x1080)") && b.summary.contains("0 min 03 s"), b.summary)
+        // 5 s skip: 500 x 10 ms (= 5 s) dropped, the 100 x 20 ms remain.
+        let skipped = BenchRun.parse("# wynix-bench v1 upscale=0\n" + (Array(repeating: "10", count: 500) + Array(repeating: "20", count: 100)).joined(separator: "\n"))!
+        precondition(skipped.frames == 100 && skipped.medianMs == 20 && skipped.summary.contains("Boost off"), "bench skip")
+        precondition(BenchRun.parse("nope\n1\n2") == nil && BenchRun.parse("# wynix-bench v1 x\n10\n") == nil)
         let app = (try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? ""
         let src = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
         precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")

@@ -659,7 +659,7 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
-        if upscaleDX12(bottle) {  // a missing injected dylib would abort Wine
+        if upscaleDX12(bottle) || benchmarking(bottle) {  // a missing injected dylib would abort Wine
             if !ensureUpscaler(bottle) {  // only for this launch; the setting stays, a later restore re-adds it
                 setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
                 alertMessage = "Boost (MetalFX upscaling) is off for this launch of \(bottle.name): its files could not be restored."
@@ -1246,6 +1246,44 @@ final class BottleStore: ObservableObject {
         }
     }
 
+    // MARK: Benchmark (the dylib records frame times when WYNIX_BENCH_FILE is set, Boost or not)
+
+    func benchmarking(_ bottle: Bottle) -> Bool { flag(bottle, "WynixBenchmark") }
+    func benchDir(_ bottle: Bottle) -> URL { bottle.contents.appendingPathComponent("wynix-bench") }
+
+    func setBenchmarking(_ bottle: Bottle, _ on: Bool) {
+        guard !on || ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path else {
+            alertMessage = "Recording performance needs the WYNIX helper library, which can't be installed in this bottle (a space in its folder path, or its files could not be copied)."
+            return
+        }
+        setEnvironment(bottle, "WYNIX_BENCH_FILE", on ? benchDir(bottle).path + "/" : nil)
+        if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) }
+        else if !upscaleDX12(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
+        setPlist(bottle, ["WynixBenchmark": on ? 1 : 0])
+        noteRestartIfRunning()
+    }
+
+    /// Last 10 runs, newest first. Files with too few frames to mean anything (Steam's own windows) are skipped.
+    func benchRuns(_ bottle: Bottle, since: Date? = nil) -> [BenchRun] {
+        let fm = FileManager.default
+        let urls = (try? fm.contentsOfDirectory(at: benchDir(bottle), includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let runs: [BenchRun] = urls.compactMap { u in
+            guard let date = try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  since == nil || date >= since!,
+                  let text = try? String(contentsOf: u, encoding: .utf8), var r = BenchRun.parse(text) else { return nil }
+            r.date = date
+            return r
+        }
+        return Array(runs.sorted { $0.date > $1.date }.prefix(10))
+    }
+
+    /// Shows the biggest run recorded since `since` (the game's, not Steam's own windows).
+    func reportBenchmark(_ bottle: Bottle, game: String, since: Date) {
+        guard benchmarking(bottle),
+              let r = benchRuns(bottle, since: since).max(by: { $0.frames < $1.frames }) else { return }
+        alertMessage = "Benchmark: \(game) \u{2014} \(r.summary)"
+    }
+
     func setUpscaleDX12(_ bottle: Bottle, _ on: Bool, notify: Bool = true) {
         if on && boost(bottle) { setBoost(bottle, false, notify: false) }  // Boost's DXMT already upscales
         guard !on || ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path ?? (on ? nil : "") else {
@@ -1254,7 +1292,7 @@ final class BottleStore: ObservableObject {
                 : "Boost (MetalFX upscaling) could not be installed into \(bottle.name)."
             return
         }
-        setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil)
+        if on || !benchmarking(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil) }
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", nil)  // retired; cleans old bottles
         setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])  // 0 = explicit off, missing = default on (Steam)
@@ -1933,6 +1971,9 @@ struct BottleSidePanel: View {
             }
             simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to your screen's shape, up to 1080p.",
                          isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
+            simpleToggle("Record performance (benchmark)", detail: "Saves frame times while you play and shows average FPS, 1% low and frame time when the game ends",
+                         isOn: store.benchmarking(bottle)) { store.setBenchmarking(bottle, $0) }
+            benchmarkList
             simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
             if D3DMetalSwap.stagedAvailable, let version = store.d3dmetalVersion(bottle) {
@@ -1972,6 +2013,19 @@ struct BottleSidePanel: View {
                     Label("Delete Bottle…", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
+            }
+        }
+    }
+
+    @ViewBuilder private var benchmarkList: some View {
+        let runs = store.benchRuns(bottle)
+        if !runs.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Benchmarks").font(.app(.caption)).fontWeight(.medium)
+                ForEach(runs, id: \.date) { r in
+                    Text("\(r.date.formatted(date: .abbreviated, time: .shortened)): \(r.summary)")
+                        .font(.app(.caption2)).foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -2483,6 +2537,46 @@ enum WindowsInstallerDrop {
             DispatchQueue.main.async { handler(url) }
         }
         return true
+    }
+}
+
+// MARK: - Benchmark (pure, checked in Tests/bottles_check.swift)
+
+struct BenchRun {
+    var date = Date()
+    var header = ""        // text after "# wynix-bench v1 "
+    var intervals: [Double]  // ms, first 5 s dropped
+    var duration: Double     // seconds, whole file
+    var frames: Int { intervals.count }
+    var avgFPS: Double { intervals.isEmpty ? 0 : Double(intervals.count) * 1000 / intervals.reduce(0, +) }
+    var medianMs: Double { intervals.isEmpty ? 0 : intervals.sorted()[intervals.count / 2] }
+    /// FPS of the 99th percentile frame time.
+    var lowFPS: Double {
+        guard !intervals.isEmpty else { return 0 }
+        let sorted = intervals.sorted()
+        return 1000 / sorted[min(sorted.count - 1, Int((Double(sorted.count) * 0.99).rounded(.up)) - 1)]
+    }
+
+    /// "68.9 avg FPS, 52.1 1% low, 14.5 ms median, 2 min 03 s; D3DMetal 4.0b3, Boost on (1280x720 -> 1920x1080)"
+    var summary: String {
+        let d = Int(duration.rounded())
+        let fields = Dictionary(uniqueKeysWithValues: header.split(separator: " ").compactMap { kv -> (String, String)? in
+            let p = kv.split(separator: "=", maxSplits: 1); return p.count == 2 ? (String(p[0]), String(p[1])) : nil })
+        let boost = fields["upscale"] == "1" ? "Boost on (\(fields["in"] ?? "?") -> \(fields["out"] ?? "?"))" : "Boost off"
+        return String(format: "%.1f avg FPS, %.1f 1%% low, %.1f ms median, %d min %02d s; D3DMetal %@, %@",
+                      avgFPS, lowFPS, medianMs, d / 60, d % 60, fields["d3dmetal"] ?? "unknown", boost)
+    }
+
+    /// Header line then one frame interval (ms) per line. nil when it is not a bench file or has nothing after the first 5 s.
+    static func parse(_ text: String, skipSeconds: Double = 5) -> BenchRun? {
+        let lines = text.split(separator: "\n")
+        guard let first = lines.first, first.hasPrefix("# wynix-bench v1 ") else { return nil }
+        var all = lines.dropFirst().compactMap { Double($0) }.filter { $0 > 0 }
+        let total = all.reduce(0, +) / 1000
+        var skipped = 0.0
+        while let f = all.first, skipped < skipSeconds * 1000 { skipped += f; all.removeFirst() }
+        guard !all.isEmpty else { return nil }
+        return BenchRun(header: String(first.dropFirst("# wynix-bench v1 ".count)), intervals: all, duration: total)
     }
 }
 

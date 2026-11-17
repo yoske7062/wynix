@@ -34,6 +34,10 @@
 //   WYNIX_UPSCALE_OUTPUT=WxH   TEST ONLY: output size when the layer has no window/screen
 //                              (the offscreen test harness); overrides the display size
 //                              (the cap below still applies)
+//   WYNIX_BENCH_FILE=<path>    record one timestamp per presented frame of Wine's D3DMetal layers (upscaled or
+//                              not; works without WYNIX_UPSCALE) and write frame intervals in ms, one per line,
+//                              after a "# wynix-bench v1 ..." header, every ~10 s and at exit. A path ending in
+//                              "/" is a folder: the file is "<epoch>-<pid>.txt" inside it.
 //   WYNIX_UPSCALE_MAX=WxH      cap on the output size (default 1920x1080); a smaller display is kept
 
 #import <Metal/Metal.h>
@@ -44,6 +48,8 @@
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
+#include <os/lock.h>
+#include <time.h>
 
 static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
@@ -52,6 +58,22 @@ static NSUInteger gTestOutW, gTestOutH, gMaxW = 1920, gMaxH = 1080;
 static IMP gOrigWaitDrawable, gOrigSignalDrawable;  // MTL4CommandQueue (Metal 4 presentation, D3DMetal 4.0)
 static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
+static BOOL gUpscale;
+
+// ---- Benchmark recording (WYNIX_BENCH_FILE) ----
+// One uint64 timestamp (ns, CLOCK_UPTIME_RAW) per presented frame in a preallocated buffer (8 MB, pages
+// are only touched as used). The render thread takes a spin-free os_unfair_lock for two stores;
+// all file I/O is on a background queue. ponytail: stops recording after 1M frames (~2 h at 120 fps).
+#define BENCH_MAX 1000000
+static const char *gBenchPath;
+static uint64_t gBenchT[BENCH_MAX];
+static unsigned gBenchN, gBenchWritten, gBenchIn[2], gBenchOut[2];
+static BOOL gBenchUpscaled;
+static char *gD3DMetalPath;
+static os_unfair_lock gBenchLock = OS_UNFAIR_LOCK_INIT;
+static NSLock *gBenchFlushLock;
+static char *gBenchFile;  // resolved file name, set on the first flush
+
 
 #define LOG(...) do { if (gLog) { fprintf(stderr, "wynix_upscale: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
@@ -105,6 +127,63 @@ static BOOL isWineLayer(CAMetalLayer *layer) {
     if (!gD3DMetalLoaded) return NO;
     id d = layer.delegate;
     return d && strstr(class_getName([d class]), "WineMetalView") != NULL;
+}
+
+static void benchTick(id<MTLDrawable> d) {
+    if (!gBenchPath) return;
+    NSUInteger inW = 0, inH = 0, outW = 0, outH = 0; BOOL up = NO;
+    if ([(NSObject *)d isKindOfClass:[WynixProxyDrawable class]]) {
+        WynixProxyDrawable *p = (WynixProxyDrawable *)d;
+        inW = p.texture.width; inH = p.texture.height; outW = p.state.outW; outH = p.state.outH; up = YES;
+        if (!isWineLayer(p.real.layer)) return;
+    } else {
+        id<CAMetalDrawable> md = (id<CAMetalDrawable>)d;
+        if (![(NSObject *)d conformsToProtocol:@protocol(CAMetalDrawable)] || !isWineLayer(md.layer)) return;
+        inW = outW = md.texture.width; inH = outH = md.texture.height;
+    }
+    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    os_unfair_lock_lock(&gBenchLock);
+    if (gBenchN < BENCH_MAX) gBenchT[gBenchN++] = now;
+    gBenchIn[0] = (unsigned)inW; gBenchIn[1] = (unsigned)inH; gBenchOut[0] = (unsigned)outW; gBenchOut[1] = (unsigned)outH;
+    gBenchUpscaled = up;
+    os_unfair_lock_unlock(&gBenchLock);
+}
+
+// Appends the intervals not yet written. Not called on the render thread. Files with under 120 frames
+// are never created (Steam's own windows also present through D3DMetal).
+static void benchFlush(void) {
+    [gBenchFlushLock lock];
+    os_unfair_lock_lock(&gBenchLock);
+    unsigned n = gBenchN, from = gBenchWritten;
+    unsigned in0 = gBenchIn[0], in1 = gBenchIn[1], out0 = gBenchOut[0], out1 = gBenchOut[1]; BOOL up = gBenchUpscaled;
+    os_unfair_lock_unlock(&gBenchLock);  // timestamps below index n are never rewritten
+    if (n > from && (gBenchFile || n >= 120)) {
+        NSMutableString *text = [NSMutableString string];
+        if (!gBenchFile) {
+            NSString *path = [NSString stringWithUTF8String:gBenchPath];
+            if ([path hasSuffix:@"/"]) {
+                [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:NULL];
+                path = [path stringByAppendingFormat:@"%ld-%d.txt", (long)time(NULL), getpid()];
+            }
+            gBenchFile = strdup(path.UTF8String);
+            NSString *ver = @"unknown";
+            if (gD3DMetalPath) {
+                NSString *fw = [NSString stringWithUTF8String:gD3DMetalPath];
+                for (NSString *rel in @[@"Versions/A/Resources/Info.plist", @"Resources/Info.plist"]) {
+                    NSDictionary *pl = [NSDictionary dictionaryWithContentsOfFile:[fw stringByAppendingPathComponent:rel]];
+                    NSString *v = pl[@"CFBundleShortVersionString"] ?: pl[@"CFBundleVersion"];
+                    if (v) { ver = v; break; }
+                }
+            }
+            [text appendFormat:@"# wynix-bench v1 in=%ux%u out=%ux%u upscale=%d d3dmetal=%@\n", in0, in1, out0, out1, up ? 1 : 0, ver];
+        }
+        for (unsigned i = from ? from : 1; i < n; i++)
+            [text appendFormat:@"%.3f\n", (gBenchT[i] - gBenchT[i - 1]) / 1e6];
+        FILE *f = fopen(gBenchFile, "a");
+        if (f) { fputs(text.UTF8String, f); fclose(f); }
+    }
+    os_unfair_lock_lock(&gBenchLock); gBenchWritten = n; os_unfair_lock_unlock(&gBenchLock);
+    [gBenchFlushLock unlock];
 }
 
 // Builds (or reuses) the scaler and texture ring for this output size. nil = don't upscale.
@@ -225,6 +304,13 @@ static id<CAMetalDrawable> passthrough(CAMetalLayer *self, SEL _cmd, WynixLayerI
 }
 
 static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
+    if (!gUpscale) {  // timing only: install the present hooks on the first Wine frame, never proxy
+        if (isWineLayer(self) && self.device) {
+            static dispatch_once_t once;
+            dispatch_once(&once, ^{ hookPresent(self.device); });
+        }
+        return ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
+    }
     if (gDisabled || !isWineLayer(self) || !self.device) {
         WynixLayerInfo *i = objc_getAssociatedObject(self, &kInfoKey);
         return i ? passthrough(self, _cmd, i) : ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
@@ -348,12 +434,15 @@ static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> draw
 }
 
 static void hookedPresent(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d) {
+    benchTick(d);
     ((void (*)(id, SEL, id))gOrigPresent)(self, _cmd, upscaleInto(self, d));
 }
 static void hookedPresentAt(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d, CFTimeInterval t) {
+    benchTick(d);
     ((void (*)(id, SEL, id, CFTimeInterval))gOrigPresentAt)(self, _cmd, upscaleInto(self, d), t);
 }
 static void hookedPresentAfter(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawable> d, CFTimeInterval t) {
+    benchTick(d);
     ((void (*)(id, SEL, id, CFTimeInterval))gOrigPresentAfter)(self, _cmd, upscaleInto(self, d), t);
 }
 
@@ -424,6 +513,7 @@ static void hookedWaitForDrawable(id self, SEL _cmd, id d) {
 }
 
 static void hookedSignalDrawable(id self, SEL _cmd, id d) {
+    benchTick(d);
     if ([(NSObject *)d isKindOfClass:[WynixProxyDrawable class]]) {
         WynixProxyDrawable *p = (WynixProxyDrawable *)d;
         if (@available(macos 26.0, *)) {
@@ -465,13 +555,19 @@ static void hookPresent(id<MTLDevice> dev) {
 
 static void onImageAdded(const struct mach_header *mh, intptr_t slide) {
     Dl_info info;
-    if (!gD3DMetalLoaded && dladdr(mh, &info) && info.dli_fname && strstr(info.dli_fname, "D3DMetal.framework"))
+    if (!gD3DMetalLoaded && dladdr(mh, &info) && info.dli_fname && strstr(info.dli_fname, "D3DMetal.framework")) {
         gD3DMetalLoaded = YES;
+        const char *e = strstr(info.dli_fname, "D3DMetal.framework") + strlen("D3DMetal.framework");
+        gD3DMetalPath = strndup(info.dli_fname, e - info.dli_fname);
+    }
 }
 
 __attribute__((constructor)) static void wynixUpscaleInit(void) {
     const char *on = getenv("WYNIX_UPSCALE");
-    if (!on || strcmp(on, "1") != 0) return;
+    gUpscale = on && strcmp(on, "1") == 0;
+    const char *bf = getenv("WYNIX_BENCH_FILE");
+    if (bf && *bf) gBenchPath = strdup(bf);
+    if (!gUpscale && !gBenchPath) return;
     gLog = getenv("WYNIX_UPSCALE_LOG") != NULL;
     gLabel = getenv("WYNIX_UPSCALE_LABEL") && strcmp(getenv("WYNIX_UPSCALE_LABEL"), "1") == 0;
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
@@ -479,6 +575,23 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }
     const char *mx = getenv("WYNIX_UPSCALE_MAX");
     if (mx) { unsigned w = 0, h = 0; if (sscanf(mx, "%ux%u", &w, &h) == 2 && w >= 64 && h >= 64) { gMaxW = w; gMaxH = h; } }
+    if (gBenchPath) {
+        gBenchFlushLock = [NSLock new];
+        static dispatch_source_t timer;
+        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_queue_create("wynix.bench", DISPATCH_QUEUE_SERIAL));
+        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), 10 * NSEC_PER_SEC, NSEC_PER_SEC);
+        dispatch_source_set_event_handler(timer, ^{ benchFlush(); });
+        dispatch_resume(timer);
+        atexit(benchFlush);
+    }
+    if (!gUpscale) {  // bench only: just the nextDrawable hook (it installs the present hooks)
+        Method mn = class_getInstanceMethod([CAMetalLayer class], @selector(nextDrawable));
+        if (!mn) return;
+        gOrigNextDrawable = method_getImplementation(mn);
+        class_replaceMethod([CAMetalLayer class], @selector(nextDrawable), (IMP)hookedNextDrawable, method_getTypeEncoding(mn));
+        _dyld_register_func_for_add_image(onImageAdded);
+        return;
+    }
     Method ms = class_getInstanceMethod([CAMetalLayer class], @selector(setDrawableSize:));
     if (!ms) return;
     gOrigSetDrawableSize = method_getImplementation(ms);

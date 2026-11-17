@@ -725,6 +725,7 @@ struct GameLibraryView: View {
     @State private var confirmQuitSteam = false
     @State private var pendingPlay: SteamGame?
     @State private var pendingAPI: GameAPI = .unknown
+    @State private var benchGame: (name: String, since: Date)?
 
     private var steamBottle: Bottle? { store.bottles.first { $0.isSteam } }
 
@@ -767,6 +768,7 @@ struct GameLibraryView: View {
         let renderer = steamBottle.map { store.boost($0) ? "dxmt" : "d3dmetal" } ?? ""
         model.play(game, renderer: renderer, status: status)
         GameModeBooster.shared.engage { [model] in model.message = $0 }
+        if let b = steamBottle, store.benchmarking(b) { benchGame = (game.name, Date()) }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { startingID = game.id }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
             if startingID == game.id { withAnimation { startingID = nil } }
@@ -907,6 +909,11 @@ struct GameLibraryView: View {
             }
         }
         .padding(28)
+        .onChange(of: model.isSteamRunning) { _, running in  // game session over: show the benchmark
+            guard !running, let g = benchGame, let b = steamBottle else { return }
+            benchGame = nil
+            store.reportBenchmark(b, game: g.name, since: g.since)
+        }
         .onAppear {
             if model.state == .ready { model.loadGames() }
         }
