@@ -41,22 +41,6 @@
           "value": "no-store"
         }
       ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
-      ]
-    }
-  ],
-  "redirects": [
-    {
-      "source": "/((?!version\\.json$|soon\\.html$|favicon\\.png$|downloads/).*)",
-      "destination": "/soon.html",
-      "permanent": false
     }
   ]
 }
