@@ -2035,6 +2035,10 @@ struct BottleSidePanel: View {
                             icon: "arrow.down.app.fill", tint: .blue) {
                 if let f = store.pickFile(in: nil) { store.install(f, in: bottle) }
             }
+            BigActionButton(title: "Support WYNIX ☕", detail: "WYNIX is free. A coffee on Ko-fi helps keep it going (nothing is locked)",
+                            icon: "heart.fill", tint: .pink) {
+                NSWorkspace.shared.open(URL(string: "https://ko-fi.com/wynix")!)
+            }
             let optimized = store.isOptimized(bottle)
             BigActionButton(title: optimized ? "Optimized ✓" : "Make Games Run Faster",
                             detail: optimized ? "Best settings already on. Click to apply again."
