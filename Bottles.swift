@@ -2565,45 +2565,87 @@ struct InstallSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var dropTargeted = false
 
+    private var selectedBottle: Bottle? { store.bottles.first { $0.id == bottleID } }
+
+    private static func fileSize(_ url: URL) -> String {
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    private func choose() { file = store.pickFile(in: nil) ?? file }
+
+    private var dropZone: some View {
+        VStack(spacing: 10) {
+            if let file {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: file.path)).resizable().frame(width: 64, height: 64)
+                Text(file.lastPathComponent).font(.app(.headline)).lineLimit(1).truncationMode(.middle)
+                Text(Self.fileSize(file)).font(.app(.caption)).foregroundStyle(.secondary)
+                Button("Change") { choose() }.controlSize(.small)
+                    .accessibilityLabel("Change installer file")
+            } else {
+                Image(systemName: dropTargeted ? "square.and.arrow.down.fill" : "arrow.down.app")
+                    .font(.system(size: 44, weight: .light)).foregroundStyle(Color.steamyAccent)
+                Text("Drop a Windows installer here").font(.app(.title3).bold())
+                Text(".exe or .msi — or choose a file").font(.app(.callout)).foregroundStyle(.secondary)
+                Button("Choose File…") { choose() }
+                    .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                    .accessibilityLabel("Choose installer file")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .padding(16)
+        .background(Color.steamyAccent.opacity(dropTargeted ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(dropTargeted ? Color.steamyAccent : Color.secondary.opacity(0.5),
+                              style: StrokeStyle(lineWidth: dropTargeted ? 2.5 : 1.5, dash: file == nil ? [7, 5] : []))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(file.map { "Selected installer \($0.lastPathComponent)" } ?? "Drop zone for a Windows installer, .exe or .msi")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Install Software").font(.app(.title2).bold())
-            HStack {
-                Text(file?.lastPathComponent ?? "No installer selected")
-                    .foregroundStyle(file == nil ? .secondary : .primary)
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Button("Choose Installer…") { file = store.pickFile(in: nil) ?? file }
-            }
-            Text("Or drag a .exe or .msi onto this window.")
-                .font(.app(.caption)).foregroundStyle(.secondary)
-            Picker("Install into bottle", selection: $bottleID) {
-                ForEach(store.bottles) { Text($0.name).tag(Optional($0.id)) }
-            }
-            if store.bottles.isEmpty {
-                Text("No bottles yet. Set up Steam or make a new bottle first.").font(.app(.caption)).foregroundStyle(.secondary)
+            dropZone
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Install into").font(.app(.callout).weight(.medium))
+                    Picker("Install into", selection: $bottleID) {
+                        ForEach(store.bottles) { bottle in
+                            Label {
+                                Text(bottle.name)
+                            } icon: {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: bottle.url.path))
+                            }.tag(Optional(bottle.id))
+                        }
+                    }
+                    .labelsHidden().frame(maxWidth: 260)
+                    .accessibilityLabel("Bottle to install into")
+                    Spacer()
+                }
+                Text(store.bottles.isEmpty
+                     ? "No bottles yet. Set up Steam or make a new bottle first."
+                     : "Each bottle is a separate Windows. Steam games go in Steam.")
+                    .font(.app(.caption)).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Cancel installation")
                 Button("Install") {
-                    if let file, let bottle = store.bottles.first(where: { $0.id == bottleID }) {
-                        store.install(file, in: bottle)
-                    }
+                    if let file, let bottle = selectedBottle { store.install(file, in: bottle) }
                     dismiss()
                 }
+                .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(file == nil || bottleID == nil)
+                .accessibilityLabel("Install software into the selected bottle")
             }
         }
-        .padding(20)
-        .frame(width: 460)
-        .overlay {
-            if dropTargeted {
-                RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6]))
-                    .padding(6).allowsHitTesting(false)
-            }
-        }
+        .padding(24)
+        .frame(minWidth: 560, minHeight: 420)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             WindowsInstallerDrop.load(providers) { file = $0 }
         }
