@@ -979,6 +979,7 @@ final class BottleStore: ObservableObject {
                                       "MTL_HUD_OPACITY": fps ? "0.85" : nil, "MTL_HUD_DISABLE_MENU_BAR": fps ? "1" : nil,
                                       "DXVK_HUD": mode == nil ? nil : (fps ? "fps" : "full")]
         for (key, value) in hud { setEnvironment(bottle, key, value) }
+        setEnvironment(bottle, "WYNIX_UPSCALE_LABEL", mode == nil ? nil : "1")  // dylib draws "WYNIX Boost MetalFX in -> out"
     }
 
     /// DXMT/upscaler/HUD env vars are read when Wine starts, so a running bottle needs a restart.
