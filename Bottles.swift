@@ -544,8 +544,8 @@ final class BottleStore: ObservableObject {
             return
         }
         if upscaleDX12(bottle) && !ensureUpscaler(bottle) {  // a missing injected dylib would abort Wine
-            setUpscaleDX12(bottle, false)
-            alertMessage = "DirectX 12 Boost was turned off for \(bottle.name): its files could not be restored."
+            setUpscaleDX12(bottle, false, notify: false)
+            alertMessage = "Boost (MetalFX upscaling) was turned off for \(bottle.name): its files could not be restored."
         }
         afterSteamAutorunOff(bottle) { [self] in
             spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)
@@ -634,11 +634,17 @@ final class BottleStore: ObservableObject {
         // This DXVK build (dxvk-macOS-async) compiles shaders in the background: fewer stutters.
         setEnvironment(bottle, "DXVK_ASYNC", "1")
         writeDXMTConfig(bottle, boost: boost(bottle))
+        // Steam bottle: MetalFX upscaling is the default; only an explicit off (key = 0) or DXMT Boost skips it.
+        if bottle.isSteam && plistDictionary(bottle)["WynixUpscaleDX12"] == nil && !boost(bottle) {
+            setUpscaleDX12(bottle, true, notify: false)
+        }
         importRegistry(bottle, [
             Self.macDriverKey: [
                 "RetinaMode": "\"n\"",                     // render at point resolution: biggest FPS win on Retina Macs
                 "CaptureDisplaysForFullscreen": "\"y\""    // fullscreen games bypass the window compositor
             ],
+            // Without this a game that switches the display mode leaves Wine's window at the old size.
+            "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver": ["EmulateModeset": "\"y\""],
             "HKEY_CURRENT_USER\\Software\\Wine\\WineDbg": ["ShowCrashDialog": "dword:00000000"],
             // Windows tray icons become unclickable menu bar icons on macOS; hide them.
             "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer":
@@ -957,15 +963,27 @@ final class BottleStore: ObservableObject {
 
     /// FPS overlay. Metal games (D3DMetal/DXMT) get Apple's Metal Performance HUD via the
     /// wrapper's METAL_HUD flag; DXVK games get DXVK's own counter.
-    func fpsCounter(_ bottle: Bottle) -> Bool { flag(bottle, "METAL_HUD") }
+    /// nil = off, "fps" = small frame rate, "advanced" = Apple's full HUD (resolution, GPU time, MetalFX...).
+    func hudMode(_ bottle: Bottle) -> String? {
+        guard flag(bottle, "METAL_HUD") else { return nil }
+        return plistDictionary(bottle)["WynixHUD"] as? String == "advanced" ? "advanced" : "fps"
+    }
 
-    func setFPSCounter(_ bottle: Bottle, _ on: Bool) {
-        setPlist(bottle, ["METAL_HUD": on ? 1 : 0])
-        // Only the frame rate: Apple's HUD otherwise shows a dozen developer metrics.
+    func setHUD(_ bottle: Bottle, _ mode: String?) {
+        setPlist(bottle, ["METAL_HUD": mode == nil ? 0 : 1, "WynixHUD": mode ?? ""])
+        // "fps": only the frame rate (Apple's HUD otherwise shows a dozen developer metrics).
+        // "advanced": no MTL_HUD_* overrides, so Apple's default elements show.
         // https://developer.apple.com/documentation/xcode/customizing-metal-performance-hud
-        let hud: [String: String] = ["MTL_HUD_ELEMENTS": "fps", "MTL_HUD_SCALE": "0.12",
-                                     "MTL_HUD_OPACITY": "0.85", "MTL_HUD_DISABLE_MENU_BAR": "1", "DXVK_HUD": "fps"]
-        for (key, value) in hud { setEnvironment(bottle, key, on ? value : nil) }
+        let fps = mode == "fps"
+        let hud: [String: String?] = ["MTL_HUD_ELEMENTS": fps ? "fps" : nil, "MTL_HUD_SCALE": fps ? "0.12" : nil,
+                                      "MTL_HUD_OPACITY": fps ? "0.85" : nil, "MTL_HUD_DISABLE_MENU_BAR": fps ? "1" : nil,
+                                      "DXVK_HUD": mode == nil ? nil : (fps ? "fps" : "full")]
+        for (key, value) in hud { setEnvironment(bottle, key, value) }
+    }
+
+    /// DXMT/upscaler/HUD env vars are read when Wine starts, so a running bottle needs a restart.
+    private func noteRestartIfRunning() {
+        if Self.windowsProgramsRunning { alertMessage = "Restart Steam (or the running program) to apply this change." }
     }
 
     // MARK: Steamy Boost
@@ -1001,9 +1019,10 @@ final class BottleStore: ObservableObject {
         return true
     }
 
-    func setBoost(_ bottle: Bottle, _ on: Bool) {
+    func setBoost(_ bottle: Bottle, _ on: Bool, notify: Bool = true) {
+        defer { if notify { noteRestartIfRunning() } }
         guard writeDXMTConfig(bottle, boost: on) else { return }
-        if on && upscaleDX12(bottle) { setUpscaleDX12(bottle, false) }  // one upscaler at a time
+        if on && upscaleDX12(bottle) { setUpscaleDX12(bottle, false, notify: false) }  // one upscaler at a time
         if on {
             var values = GraphicsBackend.dxmt.plistValues
             values["SteamyBoost"] = 1
@@ -1049,25 +1068,25 @@ final class BottleStore: ObservableObject {
         }
     }
 
-    func setUpscaleDX12(_ bottle: Bottle, _ on: Bool) {
-        if on && boost(bottle) { setBoost(bottle, false) }  // Boost's DXMT already upscales
+    func setUpscaleDX12(_ bottle: Bottle, _ on: Bool, notify: Bool = true) {
+        if on && boost(bottle) { setBoost(bottle, false, notify: false) }  // Boost's DXMT already upscales
         guard !on || ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path ?? (on ? nil : "") else {
             alertMessage = upscalerURL(bottle) == nil
-                ? "DirectX 12 Boost can't be used for this bottle: its folder path contains a space."
-                : "DirectX 12 Boost could not be installed into \(bottle.name)."
+                ? "Boost (MetalFX upscaling) can't be used for this bottle: its folder path contains a space."
+                : "Boost (MetalFX upscaling) could not be installed into \(bottle.name)."
             return
         }
         setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", nil)  // retired; cleans old bottles
-        setRegistry(bottle, key: "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver", name: "EmulateModeset", value: on ? "y" : nil)
-        setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])
+        setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])  // 0 = explicit off, missing = default on (Steam)
+        if notify { noteRestartIfRunning() }
     }
 
     // MARK: Optimized state
 
     /// Bump when `optimizeForGaming` gains settings, so bottles get offered the new ones.
-    static let optimizeVersion = 4
+    static let optimizeVersion = 5
 
     func isOptimized(_ bottle: Bottle) -> Bool {
         ((plistDictionary(bottle)["SteamyOptimized"] as? NSNumber)?.intValue ?? 0) >= Self.optimizeVersion
@@ -1572,8 +1591,12 @@ struct BottleSidePanel: View {
                     plistToggle("ESync", key: "WINEESYNC")
                     plistToggle("DirectX 9 via DXVK (D9VK)", key: "D9VK")
                     plistToggle("DirectDraw fix (cnc-ddraw)", key: "CNC_DDRAW")
-                    SettingRow("FPS Counter (in game)") {
-                        Toggle("", isOn: Binding(get: { store.fpsCounter(bottle) }, set: { store.setFPSCounter(bottle, $0) }))
+                    SettingRow("Show FPS (in game)") {
+                        Toggle("", isOn: Binding(get: { store.hudMode(bottle) == "fps" }, set: { store.setHUD(bottle, $0 ? "fps" : nil) }))
+                            .toggleStyle(.switch).labelsHidden()
+                    }
+                    SettingRow("Show advanced stats (in game)") {
+                        Toggle("", isOn: Binding(get: { store.hudMode(bottle) == "advanced" }, set: { store.setHUD(bottle, $0 ? "advanced" : nil) }))
                             .toggleStyle(.switch).labelsHidden()
                     }
                     plistToggle("Fast Math", key: "FASTMATH")
@@ -1727,12 +1750,14 @@ struct BottleSidePanel: View {
                 macDriver["RetinaMode"] = on ? "y" : "n"
                 store.importRegistry(bottle, [BottleStore.macDriverKey: ["RetinaMode": on ? "\"y\"" : "\"n\""]])
             }
-            simpleToggle("Boost", detail: "Set games to 1600×900: MetalFX sharpens them to your screen at a steady 60 FPS (DirectX 11 games)",
-                         isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
-            simpleToggle("Boost for DirectX 12 (experimental)", detail: "Set games to 1600×900: MetalFX sharpens them to your screen (D3DMetal games). Turn off if a game looks wrong",
+            simpleToggle("Boost (MetalFX upscaling)", detail: "Games render at the resolution you pick in-game and MetalFX scales them to your screen. Pick 1920×1080 in the game for the best balance.",
                          isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
-            simpleToggle("Show FPS Counter", detail: "See frame rate and GPU load while you play",
-                         isOn: store.fpsCounter(bottle)) { store.setFPSCounter(bottle, $0) }
+            simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
+                         isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
+            simpleToggle("Show FPS", detail: "See the frame rate while you play",
+                         isOn: store.hudMode(bottle) == "fps") { store.setHUD(bottle, $0 ? "fps" : nil) }
+            simpleToggle("Show advanced stats in game", detail: "Resolution, GPU time, frame interval and MetalFX status",
+                         isOn: store.hudMode(bottle) == "advanced") { store.setHUD(bottle, $0 ? "advanced" : nil) }
             simpleToggle("Mac Keyboard Shortcuts", detail: "⌘C, ⌘V and ⌘Z work like on your Mac",
                          isOn: macDriver["LeftCommandIsCtrl"]?.lowercased() == "y") { on in
                 let v = on ? "y" : "n"

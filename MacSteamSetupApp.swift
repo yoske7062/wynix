@@ -756,10 +756,10 @@ struct GameLibraryView: View {
 
                     if let steam = steamBottle {
                         Toggle(isOn: Binding(get: { store.boost(steam) }, set: { store.setBoost(steam, $0) })) {
-                            Label("Boost", systemImage: "bolt.badge.clock")
+                            Label("DXMT", systemImage: "bolt.badge.clock")
                         }
                         .toggleStyle(.button)
-                        .help("Set the game to 1600×900: MetalFX upscales it to your screen and Metal holds a steady 60 FPS. DirectX 11 games; restart Steam to apply.")
+                        .help("DirectX 11 compatibility mode (DXMT): only for DirectX 11 games that look wrong or run worse on the default. Restart Steam to apply.")
                     }
 
                     if model.isSteamRunning {

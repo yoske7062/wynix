@@ -31,6 +31,8 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")
         precondition(src.contains("if list != bottles"), "reload must not republish an unchanged list")
         precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
+        let opt = src.components(separatedBy: "func optimizeForGaming")[1].components(separatedBy: "func optimizeAll")[0]
+        precondition(opt.contains("EmulateModeset"), "Optimize must set EmulateModeset (display-mode fix)")
         let locked = LockedData()
         DispatchQueue.concurrentPerform(iterations: 50) { _ in locked.append(Data(count: 10)) }
         precondition(locked.data.count == 500, "LockedData lost bytes")
