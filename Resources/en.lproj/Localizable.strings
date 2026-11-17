@@ -85,4 +85,5 @@
 "play.profile.skip" = "Play without changes";
 "play.detected.dx12" = "%@: DirectX 12 detected, applying Boost (MetalFX)…";
 "play.detected.dx11" = "%@: DirectX 11 detected, applying DX11 Boost…";
+"play.rendererKept" = "Steam is still running another game, so %@ will use the current graphics mode. Close the other game and press Play again to apply the recommended mode.";
 "shortcut.busy" = "Busy right now. Try again in a moment.";

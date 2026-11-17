@@ -656,6 +656,7 @@ final class BottleStore: ObservableObject {
             try text.write(to: file, atomically: true, encoding: .utf8)
         } catch {
             alertMessage = error.localizedDescription
+            completion?()
             return
         }
         wine(bottle, ["regedit", "/S", bottle.windowsPath(file)]) { _, _ in

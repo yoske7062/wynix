@@ -218,6 +218,7 @@ record_renderer() {
 }
 
 stop_wrapper() {
+  /bin/rm -f "$renderer_mark"
   steam_client_is_running && steam_remove_autorun_live
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
   terminate_orphaned_steam_processes || return 1
@@ -240,6 +241,19 @@ STEAM_GRACE_SECONDS="${STEAM_GRACE_SECONDS:-300}"
 
 any_steam_game_running() {
   /usr/bin/pgrep -if 'steamapps.common.' >/dev/null  # pgrep never matches itself
+}
+
+# True when any Wine process of Windows-path style is not one of Steam's own or Wine's services:
+# a game may be running even if its path isn't under steamapps\common. Used only to veto a restart.
+game_may_be_running() {
+  any_steam_game_running && return 0
+  /bin/ps -axo command= | /usr/bin/awk '
+    { c=tolower($0) }
+    c !~ /^[a-z]:\\/ { next }
+    { sub(/\.exe.*/, "", c); n=split(c, p, "\\"); b=p[n]
+      if (b ~ /^(steam|steamwebhelper|steamservice|wineserver|explorer|services|winedevice|plugplay|rpcss|svchost|conhost|start|cmd)$/) next
+      found=1 }
+    END { exit !found }'
 }
 
 stop_steam_after_game() {
@@ -468,25 +482,31 @@ if [[ "${1:-setup}" == "play" ]]; then
   # $3 = renderer the game needs (d3dmetal|dxmt). Swift already wrote SteamyBoost for it, so the
   # plist can't tell which renderer the RUNNING Steam booted with; a marker written at each cold start can.
   wanted_renderer="${3:-}"
-  mark_age=9999
-  [[ -f "$renderer_mark" ]] && mark_age=$(( $(/bin/date +%s) - $(/usr/bin/stat -f %m "$renderer_mark") ))
+  # No Wine at all: a marker left by a crash or force-quit is stale.
+  if ! steam_is_running && ! steam_client_is_running && ! wrapper_wineserver_running; then
+    /bin/rm -f "$renderer_mark"
+  fi
   cold_start=1
   if steam_client_is_running; then
     cold_start=0
     started_with="$(/bin/cat "$renderer_mark" 2>/dev/null || true)"
-    # Switch renderer only when nothing else is playing; the unknown case (Steam opened elsewhere) stays warm.
-    if [[ -n "$wanted_renderer" && -n "$started_with" && "$started_with" != "$wanted_renderer" ]] \
-       && ! any_steam_game_running; then
-      stop_wrapper || fail_key steam_stop_failed
-      cold_start=1
+    # Opened from Finder/Dock (no marker): the bottle plist is what it booted with.
+    if [[ -z "$started_with" ]]; then
+      if [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]]; then started_with=dxmt; else started_with=d3dmetal; fi
+    fi
+    # Switch renderer only when no game may be running; never kill a game in progress.
+    if [[ -n "$wanted_renderer" && "$started_with" != "$wanted_renderer" ]]; then
+      if game_may_be_running; then
+        printf '@@NOTICE|renderer_kept|%s\n' "$app_id"
+      else
+        stop_wrapper || fail_key steam_stop_failed
+        cold_start=1
+      fi
     fi
   elif steam_is_running; then
-    # Wrapper up, client not: booting (cold start under a minute ago) or stalled/leftover wrapper.
-    if (( mark_age < 60 )); then
-      cold_start=0
-    else
-      stop_wrapper || fail_key steam_stalled_cleanup_failed
-    fi
+    # Wrapper up, client not ready: Steam may just be slow (network login). Hand over the applaunch
+    # and let Steam pick it up; never kill it from here.
+    cold_start=0
   fi
   if (( cold_start )); then
     configure_wrapper_plist "$PLIST"

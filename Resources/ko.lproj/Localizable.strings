@@ -85,4 +85,5 @@
 "play.profile.skip" = "변경 없이 플레이";
 "play.detected.dx12" = "%@: DirectX 12 감지, 부스트(MetalFX) 적용 중…";
 "play.detected.dx11" = "%@: DirectX 11 감지, DX11 부스트 적용 중…";
+"play.rendererKept" = "Steam이 다른 게임을 실행 중이므로 %@은(는) 현재 그래픽 모드를 사용합니다. 다른 게임을 종료한 후 다시 플레이를 눌러 권장 모드를 적용하세요.";
 "shortcut.busy" = "지금은 작업 중입니다. 잠시 후 다시 시도해 주세요.";

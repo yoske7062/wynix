@@ -313,6 +313,9 @@ final class InstallerModel: ObservableObject {
             let rawPhase = String(value.dropFirst(8))
             phase = friendlyPhase(rawPhase)
             if rawPhase != "steam" { needsUserAction = false }
+        } else if value.hasPrefix("@@NOTICE|renderer_kept|") {
+            let id = String(value.dropFirst(23))
+            message = L10n.format("play.rendererKept", games.first { $0.id == id }?.name ?? id)
         } else if value.hasPrefix("@@MESSAGE|") {
             message = String(value.dropFirst(10))
         } else if value.hasPrefix("@@ERROR|") {
@@ -725,21 +728,33 @@ struct GameLibraryView: View {
 
     private var steamBottle: Bottle? { store.bottles.first { $0.isSteam } }
 
-    /// Detects the game's DirectX version and, unless the bottle already has that profile, asks before applying it.
+    /// Detects the game's DirectX version (off the main thread) and, unless the bottle already has that profile, asks before applying it.
     private func play(_ game: SteamGame) {
         guard let bottle = steamBottle else { startPlay(game); return }
-        let folder = GameAPI.steamFolder(in: bottle, installDirectory: game.installDirectory)
-        let api = folder.map { GameAPI.detect(folder: $0) } ?? .unknown
-        let ready = store.isOptimized(bottle) && (api == .dx11 ? store.boost(bottle) : store.upscaleDX12(bottle))
-        if ready { startPlay(game) } else { pendingAPI = api; pendingPlay = game }
+        if store.plistDictionary(bottle)["WynixGameProfile_\(game.id)"] as? String == "skip" { startPlay(game); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let folder = GameAPI.steamFolder(in: bottle, installDirectory: game.installDirectory)
+            let api = folder.map { GameAPI.detect(folder: $0) } ?? .unknown
+            DispatchQueue.main.async {
+                // Without an installable upscaler, dx12/unknown only need plain optimization, or the dialog would loop.
+                let canUpscale = store.upscalerURL(bottle) != nil
+                let ready = store.isOptimized(bottle) && (api == .dx11 ? store.boost(bottle) : (!canUpscale || store.upscaleDX12(bottle)))
+                if ready { startPlay(game) } else { pendingAPI = api; pendingPlay = game }
+            }
+        }
     }
 
     private func applyAndPlay(_ game: SteamGame, _ api: GameAPI) {
         guard let bottle = steamBottle else { return startPlay(game) }
         let go = {
             // dx12 and unknown both take the D3DMetal path (it also runs DX11).
-            if api == .dx11 { store.setBoost(bottle, true, notify: false) } else { store.setUpscaleDX12(bottle, true, notify: false) }
-            store.setPlist(bottle, ["WynixGameProfile_\(game.id)": api == .dx11 ? "dx11" : "dx12"])
+            if api == .dx11 { store.setBoost(bottle, true, notify: false) }
+            else if store.upscalerURL(bottle) != nil { store.setUpscaleDX12(bottle, true, notify: false) }
+            else if !UserDefaults.standard.bool(forKey: "upscaleNoteShown") {
+                UserDefaults.standard.set(true, forKey: "upscaleNoteShown")
+                store.alertMessage = "Boost (MetalFX upscaling) can't be used for this bottle: its folder path contains a space. Plain optimization was applied."
+            }
+            store.setPlist(bottle, ["WynixGameProfile_\(game.id)": "auto-applied"])
             startPlay(game, status: L10n.format(api == .dx11 ? "play.detected.dx11" : "play.detected.dx12", game.name))
         }
         if store.isOptimized(bottle) { go() } else { store.optimizeForGaming(bottle, completion: go) }
@@ -898,7 +913,12 @@ struct GameLibraryView: View {
         )) {
             Button(L10n.string("play.profile.apply")) { if let game = pendingPlay { applyAndPlay(game, pendingAPI) } }
                 .keyboardShortcut(.defaultAction)
-            Button(L10n.string("play.profile.skip")) { if let game = pendingPlay { startPlay(game) } }
+            Button(L10n.string("play.profile.skip")) {
+                if let game = pendingPlay, let bottle = steamBottle {
+                    store.setPlist(bottle, ["WynixGameProfile_\(game.id)": "skip"])
+                    startPlay(game)
+                }
+            }
             Button(L10n.string("common.cancel"), role: .cancel) {}
         } message: {
             Text(L10n.format("play.profile.body", L10n.string(pendingAPI == .dx11 ? "play.profile.dx11" : "play.profile.dx12")))

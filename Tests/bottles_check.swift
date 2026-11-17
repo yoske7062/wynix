@@ -63,6 +63,9 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         let empty = fm.temporaryDirectory.appendingPathComponent("wynix-api-empty-\(UUID().uuidString)")
         try! fm.createDirectory(at: empty, withIntermediateDirectories: true)
         precondition(GameAPI.detect(folder: empty) == .unknown, "empty unknown")
+        let playBlock = setup.components(separatedBy: "== \"play\" ]]").last?.components(separatedBy: "== \"create-shortcut\" ]]").first ?? ""
+        precondition(playBlock.contains("steam_is_running") && !playBlock.contains("steam_stalled_cleanup_failed"), "stalled wrapper branch must not stop Steam")
+        precondition(playBlock.contains("game_may_be_running") && setup.contains("rm -f \"$renderer_mark\""), "renderer switch guard / marker clear missing")
         precondition(app.contains("applyAndPlay") && !app.contains("Optimize before playing?"), "auto profile prompt missing")
         let path = CommandLine.arguments[1]
         guard FileManager.default.fileExists(atPath: path) else { print("SKIP: no bottle at \(path)"); return }
