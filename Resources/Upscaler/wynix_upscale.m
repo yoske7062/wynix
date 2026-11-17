@@ -1,10 +1,12 @@
 // WYNIX Upscale: MetalFX spatial upscaling for Metal games running in Wine (D3DMetal, DX12).
 //
 // Loaded into the Wine process with DYLD_INSERT_LIBRARIES (x86_64, runs under Rosetta like
-// Wine). D3DMetal itself is never modified: this only hooks two public Apple entry points
+// Wine). D3DMetal itself is never modified: this only hooks three public Apple entry points
 // in-process.
 //
 //   -[CAMetalLayer setDrawableSize:]   records the size the game asked for (its resolution).
+//   -[CAMetalLayer drawableSize]       getter: while we upscale a layer it reports the game's size, so
+//                                      D3DMetal/Wine never see (or fight) the screen-sized real one.
 //   -[CAMetalLayer nextDrawable]       sizes the real drawable to the screen's native pixels and
 //                                      returns a proxy drawable whose texture is an offscreen
 //                                      texture at the game's resolution.
@@ -13,8 +15,8 @@
 //                                      buffer, then presents the real drawable. Same command
 //                                      buffer = GPU ordering for free, no extra latency.
 //
-// Sizing: input = the size the layer would normally have (what the game asked for), output = native
-// pixel size of the screen the layer's window is on, so macOS can present Direct. Only upscales
+// Sizing: input = last setDrawableSize, else the layer's bounds * contentsScale; output = native
+// pixel size of the main display's mode (CoreGraphics), so macOS can present Direct. Only upscales
 // when input is smaller than output in both dimensions (and >= 64 px); otherwise pure passthrough.
 //
 // Off unless WYNIX_UPSCALE=1. Any failure (no MetalFX, unsupported format, odd sizes) falls
@@ -26,7 +28,7 @@
 //   WYNIX_UPSCALE_LABEL=1      blit a small "WYNIX Boost" box into the top-left of the real drawable
 //   WYNIX_UPSCALE_LOG=1        log decisions to stderr
 //   WYNIX_UPSCALE_OUTPUT=WxH   TEST ONLY: output size when the layer has no window/screen
-//                              (the offscreen test harness); ignored when a screen is found
+//                              (the offscreen test harness); overrides the display size
 
 #import <Metal/Metal.h>
 #import <MetalFX/MetalFX.h>
@@ -41,7 +43,7 @@ static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
 static NSUInteger gTestOutW, gTestOutH;
-static IMP gOrigSetDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
+static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
 
 #define LOG(...) do { if (gLog) { fprintf(stderr, "wynix_upscale: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
@@ -57,11 +59,11 @@ static char kStateKey, kInfoKey;
 @implementation WynixLayerState
 @end
 
-// Per-layer sizes: what the game asked for, and the cached screen size.
+// Per-layer: the size the game asked for, and whether we currently hold the layer at screen size.
+// All fields are guarded by @synchronized(info).
 @interface WynixLayerInfo : NSObject
-@property BOOL hasReq;
-@property CGSize req, out;
-@property CFTimeInterval outAt;
+@property BOOL hasReq, active;
+@property CGSize req;
 @end
 @implementation WynixLayerInfo
 @end
@@ -150,40 +152,58 @@ static WynixLayerInfo *infoFor(CAMetalLayer *layer) {
 static void setSizeOrig(CAMetalLayer *layer, CGSize sz) {
     ((void (*)(id, SEL, CGSize))gOrigSetDrawableSize)(layer, @selector(setDrawableSize:), sz);
 }
+static CGSize realSize(CAMetalLayer *layer) {  // the layer's true drawable size, never the hooked getter
+    return ((CGSize (*)(id, SEL))gOrigDrawableSize)(layer, @selector(drawableSize));
+}
+
+// The size the game wants: last setDrawableSize, else the layer's own geometry (Wine updates the
+// bounds on resize). Recomputed every call, never frozen.
+static CGSize requestedSize(CAMetalLayer *layer, WynixLayerInfo *info) {
+    @synchronized (info) { if (info.hasReq) return info.req; }
+    CGSize b = layer.bounds.size; CGFloat k = layer.contentsScale;
+    return CGSizeMake(round(b.width * k), round(b.height * k));
+}
 
 static void hookedSetDrawableSize(CAMetalLayer *self, SEL _cmd, CGSize sz) {
+    if (!isWineLayer(self)) { setSizeOrig(self, sz); return; }
     WynixLayerInfo *i = infoFor(self);
-    @synchronized (i) { i.req = sz; i.hasReq = YES; }
-    ((void (*)(id, SEL, CGSize))gOrigSetDrawableSize)(self, _cmd, sz);
+    BOOL active;
+    @synchronized (i) { i.req = sz; i.hasReq = YES; active = i.active; }
+    // While we hold the layer at screen size, the game's size is applied (or not) at the next nextDrawable.
+    if (!active) setSizeOrig(self, sz);
 }
 
-// Native pixel size of the screen the layer's window is on (KVC, so AppKit is not linked into
-// every Wine process). Cached 2 s: nextDrawable runs on a render thread and AppKit is main-thread
-// territory, so this is a read-only peek, not a hot-path call. ponytail: no main-thread hop.
-static CGSize outputSize(CAMetalLayer *layer, WynixLayerInfo *info) {
-    CFTimeInterval now = CACurrentMediaTime();
-    if (info.out.width > 0 && now - info.outAt < 2) return info.out;
-    CGSize out = CGSizeMake(0, 0);
-    @try {
-        id screen = nil;
-        id d = layer.delegate;
-        if ([d respondsToSelector:NSSelectorFromString(@"window")]) screen = [[d valueForKey:@"window"] valueForKey:@"screen"];
-        if (!screen) screen = [NSClassFromString(@"NSScreen") valueForKey:@"mainScreen"];
-        if (screen) {
-            CGRect f = CGRectMake(0, 0, 0, 0);
-            [(NSValue *)[screen valueForKey:@"frame"] getValue:&f size:sizeof f];
-            double k = [[screen valueForKey:@"backingScaleFactor"] doubleValue];
-            out = CGSizeMake(round(f.size.width * k), round(f.size.height * k));
+// What D3DMetal/Wine see: the game's size for layers we are upscaling, the real one otherwise.
+static CGSize hookedDrawableSize(CAMetalLayer *self, SEL _cmd) {
+    WynixLayerInfo *i = objc_getAssociatedObject(self, &kInfoKey);
+    BOOL active = NO;
+    if (i) @synchronized (i) { active = i.active; }
+    return active ? requestedSize(self, i) : realSize(self);
+}
+
+// Pixel size of the main display's current mode (CoreGraphics only: thread-safe on the render
+// thread). Cached 2 s under one lock. ponytail: main display only; use the window's display if multi-monitor matters
+static CGSize outputSize(void) {
+    static CGSize cached; static CFTimeInterval at;
+    @synchronized ([WynixLayerInfo class]) {
+        CFTimeInterval now = CACurrentMediaTime();
+        if (cached.width > 0 && now - at < 2) return cached;
+        CGSize out = CGSizeMake(0, 0);
+        if (gTestOutW) out = CGSizeMake(gTestOutW, gTestOutH);
+        else {
+            CGDisplayModeRef m = CGDisplayCopyDisplayMode(CGMainDisplayID());
+            if (m) { out = CGSizeMake(CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m)); CGDisplayModeRelease(m); }
         }
-    } @catch (id e) {}
-    if (out.width <= 0 && gTestOutW) out = CGSizeMake(gTestOutW, gTestOutH);
-    info.out = out; info.outAt = now;
-    return out;
+        cached = out; at = now;
+        return out;
+    }
 }
 
-// Original path: the layer goes back to the size the game asked for, then the stock drawable.
+// Original path: if we had resized the layer, it goes back to the requested size, then the stock drawable.
 static id<CAMetalDrawable> passthrough(CAMetalLayer *self, SEL _cmd, WynixLayerInfo *info) {
-    if (info.hasReq && !CGSizeEqualToSize(self.drawableSize, info.req)) setSizeOrig(self, info.req);
+    BOOL active;
+    @synchronized (info) { active = info.active; info.active = NO; }
+    if (active) setSizeOrig(self, requestedSize(self, info));
     return ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
 }
 
@@ -195,20 +215,28 @@ static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ hookPresent(self.device); });
     WynixLayerInfo *info = infoFor(self);
-    if (!info.hasReq) { info.req = self.drawableSize; info.hasReq = YES; }  // setDrawableSize never called
     if (gDisabled || !gOrigPresentAt || !gOrigPresentAfter) return passthrough(self, _cmd, info);
 
-    CGSize in = info.req, out = outputSize(self, info);
+    // Every eligibility check happens before the layer is touched.
+    CGSize in = requestedSize(self, info), out = outputSize();
     if (in.width < 64 || in.height < 64 || in.width >= out.width || in.height >= out.height)
         return passthrough(self, _cmd, info);  // nothing to gain (or no screen known)
     WynixLayerState *s = stateFor(self, (NSUInteger)in.width, (NSUInteger)in.height,
                                   (NSUInteger)out.width, (NSUInteger)out.height);
     if (!s) return passthrough(self, _cmd, info);
-    // MetalFX writes the drawable texture, so it can't be framebuffer-only.
+    // MetalFX writes the drawable texture, so it can't be framebuffer-only; a non-framebufferOnly
+    // drawable has RenderTarget|ShaderRead|ShaderWrite.
+    MTLTextureUsage have = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    if ((s.scaler.outputTextureUsage & have) != s.scaler.outputTextureUsage) return passthrough(self, _cmd, info);
     if (self.framebufferOnly) self.framebufferOnly = NO;
-    if (!CGSizeEqualToSize(self.drawableSize, out)) setSizeOrig(self, out);  // real drawable = screen pixels
+    if (!CGSizeEqualToSize(realSize(self), out)) setSizeOrig(self, out);  // real drawable = screen pixels
+    @synchronized (info) { info.active = YES; }
     id<CAMetalDrawable> real = ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);  // keeps pacing
-    if (!real) return nil;
+    if (!real) {
+        @synchronized (info) { info.active = NO; }
+        setSizeOrig(self, requestedSize(self, info));
+        return nil;
+    }
     if ((real.texture.usage & s.scaler.outputTextureUsage) != s.scaler.outputTextureUsage) return real;
 
     WynixProxyDrawable *p = [WynixProxyDrawable new];
@@ -272,6 +300,7 @@ static id<MTLTexture> makeLabel(WynixLayerState *s, id<MTLDevice> dev) {
     }
     MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:f width:w height:h mipmapped:NO];
     id<MTLTexture> t = [dev newTextureWithDescriptor:td];
+    if (!t) return nil;
     [t replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:out.bytes bytesPerRow:w * bpp];
     return t;
 }
@@ -350,7 +379,10 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     gOrigSetDrawableSize = method_getImplementation(ms);
     class_replaceMethod([CAMetalLayer class], @selector(setDrawableSize:), (IMP)hookedSetDrawableSize, method_getTypeEncoding(ms));
     Method mn = class_getInstanceMethod([CAMetalLayer class], @selector(nextDrawable));
-    if (!mn) return;
+    Method mg = class_getInstanceMethod([CAMetalLayer class], @selector(drawableSize));
+    if (!mn || !mg) return;
+    gOrigDrawableSize = method_getImplementation(mg);
+    class_replaceMethod([CAMetalLayer class], @selector(drawableSize), (IMP)hookedDrawableSize, method_getTypeEncoding(mg));
     gOrigNextDrawable = method_getImplementation(mn);
     class_replaceMethod([CAMetalLayer class], @selector(nextDrawable), (IMP)hookedNextDrawable, method_getTypeEncoding(mn));
     _dyld_register_func_for_add_image(onImageAdded);  // also replays images already loaded

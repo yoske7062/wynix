@@ -13,9 +13,11 @@ int main(int argc, char **argv) { @autoreleasepool {
     layer.drawableSize = CGSizeMake(argc > 3 ? atoi(argv[2]) : 2560, argc > 3 ? atoi(argv[3]) : 1440);
     __block double gpu = 0; __block int done = 0, errors = 0;
     NSUInteger w = 0, h = 0;
+    CGSize want = layer.drawableSize, seen = want;
     for (int i = 0; i < frames; i++) { @autoreleasepool {
         id<CAMetalDrawable> d = [layer nextDrawable];
         if (!d) { fprintf(stderr, "no drawable\n"); return 2; }
+        seen = layer.drawableSize;  // the game must keep seeing its own size, never the screen's
         w = d.texture.width; h = d.texture.height;
         id<MTLCommandBuffer> cb = [q commandBuffer];
         MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -34,5 +36,7 @@ int main(int argc, char **argv) { @autoreleasepool {
     }}
     [NSThread sleepForTimeInterval:0.2];
     printf("render %lux%lu frames %d errors %d gpu_ms_per_frame %.3f\n", (unsigned long)w, (unsigned long)h, done, errors, gpu / done * 1000);
+    printf("layer_size %lux%lu\n", (unsigned long)seen.width, (unsigned long)seen.height);
+    if (!CGSizeEqualToSize(seen, want)) { fprintf(stderr, "drawableSize leaked the real size\n"); return 3; }
     return errors ? 1 : 0;
 }}

@@ -543,9 +543,13 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
-        if upscaleDX12(bottle) && !ensureUpscaler(bottle) {  // a missing injected dylib would abort Wine
-            setUpscaleDX12(bottle, false, notify: false)
-            alertMessage = "Boost (MetalFX upscaling) was turned off for \(bottle.name): its files could not be restored."
+        if upscaleDX12(bottle) {  // a missing injected dylib would abort Wine
+            if !ensureUpscaler(bottle) {  // only for this launch; the setting stays, a later restore re-adds it
+                setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
+                alertMessage = "Boost (MetalFX upscaling) is off for this launch of \(bottle.name): its files could not be restored."
+            } else if let path = upscalerURL(bottle)?.path, environment(bottle)["DYLD_INSERT_LIBRARIES"] == nil {
+                setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path)
+            }
         }
         afterSteamAutorunOff(bottle) { [self] in
             spawn(bottle.launcher, arguments, environment: InstallerModel.taskEnvironment(), completion: completion)

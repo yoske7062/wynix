@@ -11,6 +11,7 @@ export WYNIX_UPSCALE=1 DYLD_INSERT_LIBRARIES="$lib"
 # Game at 1600x900 on a 2560x1440 "screen": upscaled, game renders into a 1600x900 texture.
 on="$(WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 500 1600 900)"
 echo "$on"; [[ "$on" == "render 1600x900 frames 500 errors 0"* ]]
+[[ "$on" == *"layer_size 1600x900" ]]  # layer.drawableSize still reports the game size
 # Game already at screen size: pure passthrough.
 same="$(WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 100 2560 1440)"
 echo "$same"; [[ "$same" == "render 2560x1440 frames 100 errors 0"* ]]
