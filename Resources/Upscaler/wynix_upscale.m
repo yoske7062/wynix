@@ -4,21 +4,28 @@
 // Wine). D3DMetal itself is never modified: this only hooks two public Apple entry points
 // in-process.
 //
-//   -[CAMetalLayer nextDrawable]       returns a proxy drawable whose texture is a smaller
-//                                      offscreen texture (the game's internal resolution).
+//   -[CAMetalLayer setDrawableSize:]   records the size the game asked for (its resolution).
+//   -[CAMetalLayer nextDrawable]       sizes the real drawable to the screen's native pixels and
+//                                      returns a proxy drawable whose texture is an offscreen
+//                                      texture at the game's resolution.
 //   -[MTLCommandBuffer presentDrawable:] when given a proxy, appends a MetalFX spatial upscale
 //                                      (proxy texture -> real drawable) to the SAME command
 //                                      buffer, then presents the real drawable. Same command
 //                                      buffer = GPU ordering for free, no extra latency.
+//
+// Sizing: input = the size the layer would normally have (what the game asked for), output = native
+// pixel size of the screen the layer's window is on, so macOS can present Direct. Only upscales
+// when input is smaller than output in both dimensions (and >= 64 px); otherwise pure passthrough.
 //
 // Off unless WYNIX_UPSCALE=1. Any failure (no MetalFX, unsupported format, odd sizes) falls
 // back to the untouched original path, so the game always still runs.
 //
 // Env:
 //   WYNIX_UPSCALE=1            enable
-//   WYNIX_UPSCALE_SCALE=1.6    output/input ratio (default 1.6, clamped 1.0-2.0)
 //   WYNIX_UPSCALE_ANY_LAYER=1  hook every CAMetalLayer (tests); default only Wine's views
 //   WYNIX_UPSCALE_LOG=1        log decisions to stderr
+//   WYNIX_UPSCALE_OUTPUT=WxH   TEST ONLY: output size when the layer has no window/screen
+//                              (the offscreen test harness); ignored when a screen is found
 
 #import <Metal/Metal.h>
 #import <MetalFX/MetalFX.h>
@@ -30,19 +37,28 @@
 static BOOL gLog, gAnyLayer;
 static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
-static double gScale = 1.6;
-static IMP gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
-static char kStateKey;
+static NSUInteger gTestOutW, gTestOutH;
+static IMP gOrigSetDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
+static char kStateKey, kInfoKey;
 
 #define LOG(...) do { if (gLog) { fprintf(stderr, "wynix_upscale: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
 @interface WynixLayerState : NSObject
 @property id<MTLFXSpatialScaler> scaler;
 @property NSArray<id<MTLTexture>> *ring;
-@property NSUInteger next, outW, outH;
+@property NSUInteger next, inW, inH, outW, outH;
 @property MTLPixelFormat format;
 @end
 @implementation WynixLayerState
+@end
+
+// Per-layer sizes: what the game asked for, and the cached screen size.
+@interface WynixLayerInfo : NSObject
+@property BOOL hasReq;
+@property CGSize req, out;
+@property CFTimeInterval outAt;
+@end
+@implementation WynixLayerInfo
 @end
 
 @interface WynixProxyDrawable : NSObject <CAMetalDrawable>
@@ -73,18 +89,18 @@ static BOOL isWineLayer(CAMetalLayer *layer) {
 }
 
 // Builds (or reuses) the scaler and texture ring for this output size. nil = don't upscale.
-static WynixLayerState *stateFor(CAMetalLayer *layer, NSUInteger outW, NSUInteger outH) {
+static WynixLayerState *stateFor(CAMetalLayer *layer, NSUInteger inW, NSUInteger inH, NSUInteger outW, NSUInteger outH) {
     WynixLayerState *s = objc_getAssociatedObject(layer, &kStateKey);
     MTLPixelFormat fmt = layer.pixelFormat;
-    if (s && s.outW == outW && s.outH == outH && s.format == fmt) return s.scaler ? s : nil;
+    if (s && s.inW == inW && s.inH == inH && s.outW == outW && s.outH == outH && s.format == fmt)
+        return s.scaler ? s : nil;
 
     s = [WynixLayerState new];
-    s.outW = outW; s.outH = outH; s.format = fmt;
+    s.inW = inW; s.inH = inH; s.outW = outW; s.outH = outH; s.format = fmt;
     objc_setAssociatedObject(layer, &kStateKey, s, OBJC_ASSOCIATION_RETAIN);  // caches failures too
 
-    NSUInteger inW = (NSUInteger)(outW / gScale + 0.5), inH = (NSUInteger)(outH / gScale + 0.5);
     id<MTLDevice> dev = layer.device;
-    if (!dev || inW < 64 || inH < 64 || inW >= outW) { LOG("skip %lux%lu", outW, outH); return nil; }
+    if (!dev) return nil;
     if (![MTLFXSpatialScalerDescriptor supportsDevice:dev]) { LOG("MetalFX unsupported"); return nil; }
 
     MTLFXSpatialScalerDescriptor *desc = [MTLFXSpatialScalerDescriptor new];
@@ -120,20 +136,75 @@ static WynixLayerState *stateFor(CAMetalLayer *layer, NSUInteger outW, NSUIntege
 
 static void hookPresent(id<MTLDevice> dev);
 
+static WynixLayerInfo *infoFor(CAMetalLayer *layer) {
+    WynixLayerInfo *i = objc_getAssociatedObject(layer, &kInfoKey);
+    if (!i) { i = [WynixLayerInfo new]; objc_setAssociatedObject(layer, &kInfoKey, i, OBJC_ASSOCIATION_RETAIN); }
+    return i;
+}
+
+static void setSizeOrig(CAMetalLayer *layer, CGSize sz) {
+    ((void (*)(id, SEL, CGSize))gOrigSetDrawableSize)(layer, @selector(setDrawableSize:), sz);
+}
+
+static void hookedSetDrawableSize(CAMetalLayer *self, SEL _cmd, CGSize sz) {
+    WynixLayerInfo *i = infoFor(self);
+    @synchronized (i) { i.req = sz; i.hasReq = YES; }
+    ((void (*)(id, SEL, CGSize))gOrigSetDrawableSize)(self, _cmd, sz);
+}
+
+// Native pixel size of the screen the layer's window is on (KVC, so AppKit is not linked into
+// every Wine process). Cached 2 s: nextDrawable runs on a render thread and AppKit is main-thread
+// territory, so this is a read-only peek, not a hot-path call. ponytail: no main-thread hop.
+static CGSize outputSize(CAMetalLayer *layer, WynixLayerInfo *info) {
+    CFTimeInterval now = CACurrentMediaTime();
+    if (info.out.width > 0 && now - info.outAt < 2) return info.out;
+    CGSize out = CGSizeMake(0, 0);
+    @try {
+        id screen = nil;
+        id d = layer.delegate;
+        if ([d respondsToSelector:NSSelectorFromString(@"window")]) screen = [[d valueForKey:@"window"] valueForKey:@"screen"];
+        if (!screen) screen = [NSClassFromString(@"NSScreen") valueForKey:@"mainScreen"];
+        if (screen) {
+            CGRect f = CGRectMake(0, 0, 0, 0);
+            [(NSValue *)[screen valueForKey:@"frame"] getValue:&f size:sizeof f];
+            double k = [[screen valueForKey:@"backingScaleFactor"] doubleValue];
+            out = CGSizeMake(round(f.size.width * k), round(f.size.height * k));
+        }
+    } @catch (id e) {}
+    if (out.width <= 0 && gTestOutW) out = CGSizeMake(gTestOutW, gTestOutH);
+    info.out = out; info.outAt = now;
+    return out;
+}
+
+// Original path: the layer goes back to the size the game asked for, then the stock drawable.
+static id<CAMetalDrawable> passthrough(CAMetalLayer *self, SEL _cmd, WynixLayerInfo *info) {
+    if (info.hasReq && !CGSizeEqualToSize(self.drawableSize, info.req)) setSizeOrig(self, info.req);
+    return ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
+}
+
 static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
-    if (gDisabled || !isWineLayer(self) || !self.device)
-        return ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
+    if (gDisabled || !isWineLayer(self) || !self.device) {
+        WynixLayerInfo *i = objc_getAssociatedObject(self, &kInfoKey);
+        return i ? passthrough(self, _cmd, i) : ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
+    }
     static dispatch_once_t once;
     dispatch_once(&once, ^{ hookPresent(self.device); });
-    if (gDisabled) return ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);
+    WynixLayerInfo *info = infoFor(self);
+    if (!info.hasReq) { info.req = self.drawableSize; info.hasReq = YES; }  // setDrawableSize never called
+    if (gDisabled || !gOrigPresentAt || !gOrigPresentAfter) return passthrough(self, _cmd, info);
+
+    CGSize in = info.req, out = outputSize(self, info);
+    if (in.width < 64 || in.height < 64 || in.width >= out.width || in.height >= out.height)
+        return passthrough(self, _cmd, info);  // nothing to gain (or no screen known)
+    WynixLayerState *s = stateFor(self, (NSUInteger)in.width, (NSUInteger)in.height,
+                                  (NSUInteger)out.width, (NSUInteger)out.height);
+    if (!s) return passthrough(self, _cmd, info);
     // MetalFX writes the drawable texture, so it can't be framebuffer-only.
     if (self.framebufferOnly) self.framebufferOnly = NO;
+    if (!CGSizeEqualToSize(self.drawableSize, out)) setSizeOrig(self, out);  // real drawable = screen pixels
     id<CAMetalDrawable> real = ((id (*)(id, SEL))gOrigNextDrawable)(self, _cmd);  // keeps pacing
     if (!real) return nil;
-    id<MTLTexture> out = real.texture;
-    WynixLayerState *s = stateFor(self, out.width, out.height);
-    if (!s || (out.usage & s.scaler.outputTextureUsage) != s.scaler.outputTextureUsage) return real;
-    if (!gOrigPresentAt || !gOrigPresentAfter) return real;  // a present variant we can't intercept
+    if ((real.texture.usage & s.scaler.outputTextureUsage) != s.scaler.outputTextureUsage) return real;
 
     WynixProxyDrawable *p = [WynixProxyDrawable new];
     p.real = real; p.state = s;
@@ -195,12 +266,16 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     if (!on || strcmp(on, "1") != 0) return;
     gLog = getenv("WYNIX_UPSCALE_LOG") != NULL;
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
-    const char *sc = getenv("WYNIX_UPSCALE_SCALE");
-    if (sc) { double v = atof(sc); if (v >= 1.0 && v <= 2.0) gScale = v; }
+    const char *to = getenv("WYNIX_UPSCALE_OUTPUT");
+    if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }
+    Method ms = class_getInstanceMethod([CAMetalLayer class], @selector(setDrawableSize:));
+    if (!ms) return;
+    gOrigSetDrawableSize = method_getImplementation(ms);
+    class_replaceMethod([CAMetalLayer class], @selector(setDrawableSize:), (IMP)hookedSetDrawableSize, method_getTypeEncoding(ms));
     Method mn = class_getInstanceMethod([CAMetalLayer class], @selector(nextDrawable));
     if (!mn) return;
     gOrigNextDrawable = method_getImplementation(mn);
     class_replaceMethod([CAMetalLayer class], @selector(nextDrawable), (IMP)hookedNextDrawable, method_getTypeEncoding(mn));
     _dyld_register_func_for_add_image(onImageAdded);  // also replays images already loaded
-    LOG("active, scale %.2f", gScale);
+    LOG("active");
 }

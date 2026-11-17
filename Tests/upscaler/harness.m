@@ -9,7 +9,8 @@ int main(int argc, char **argv) { @autoreleasepool {
     id<MTLCommandQueue> q = [dev newCommandQueue];
     CAMetalLayer *layer = [CAMetalLayer layer];
     layer.device = dev; layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    layer.drawableSize = CGSizeMake(2560, 1440);
+    // Game resolution WxH (argv[2], argv[3]; default 2560x1440).
+    layer.drawableSize = CGSizeMake(argc > 3 ? atoi(argv[2]) : 2560, argc > 3 ? atoi(argv[3]) : 1440);
     __block double gpu = 0; __block int done = 0, errors = 0;
     NSUInteger w = 0, h = 0;
     for (int i = 0; i < frames; i++) { @autoreleasepool {

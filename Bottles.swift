@@ -1059,7 +1059,7 @@ final class BottleStore: ObservableObject {
         }
         setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
-        setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", on ? String(format: "%.2f", Self.boostFactor) : nil)
+        setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", nil)  // retired; cleans old bottles
         setRegistry(bottle, key: "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver", name: "EmulateModeset", value: on ? "y" : nil)
         setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])
     }
