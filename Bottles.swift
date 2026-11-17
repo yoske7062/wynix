@@ -1755,7 +1755,7 @@ struct BottleSidePanel: View {
                 macDriver["RetinaMode"] = on ? "y" : "n"
                 store.importRegistry(bottle, [BottleStore.macDriverKey: ["RetinaMode": on ? "\"y\"" : "\"n\""]])
             }
-            simpleToggle("Boost (MetalFX upscaling)", detail: "Games render at the resolution you pick in-game and MetalFX scales them to your screen. Pick 1920×1080 in the game for the best balance.",
+            simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to 1920×1080.",
                          isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
             simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }

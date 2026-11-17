@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fake game (offscreen CAMetalLayer) with the built wynix_upscale.dylib injected: the hook must
-# engage (game renders at its own 1600x900 while the layer is sized to the 2560x1440 screen), and every frame must complete without GPU errors.
+# engage (game renders at its own 1600x900 while the layer is sized to the 2560x1440 screen, capped to 1920x1080), and every frame must complete without GPU errors.
 # Also checks the default filter leaves non-Wine layers alone.
 set -e
 cd "$(dirname "$0")/../.."
@@ -12,6 +12,9 @@ export WYNIX_UPSCALE=1 DYLD_INSERT_LIBRARIES="$lib"
 on="$(WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 500 1600 900)"
 echo "$on"; [[ "$on" == "render 1600x900 frames 500 errors 0"* ]]
 [[ "$on" == *"layer_size 1600x900" ]]  # layer.drawableSize still reports the game size
+# Output is capped at 1920x1080 even on a 2560x1440 "screen" (log line shows the real output).
+cap="$(WYNIX_UPSCALE_LOG=1 WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 100 1600 900 2>&1)"
+echo "$cap"; [[ "$cap" == *"upscaling 1600x900 -> 1920x1080"* && "$cap" == *"render 1600x900 frames 100 errors 0"* ]]
 # Game already at screen size: pure passthrough.
 same="$(WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 100 2560 1440)"
 echo "$same"; [[ "$same" == "render 2560x1440 frames 100 errors 0"* ]]

@@ -7,7 +7,7 @@
 //   -[CAMetalLayer setDrawableSize:]   records the size the game asked for (its resolution).
 //   -[CAMetalLayer drawableSize]       getter: while we upscale a layer it reports the game's size, so
 //                                      D3DMetal/Wine never see (or fight) the screen-sized real one.
-//   -[CAMetalLayer nextDrawable]       sizes the real drawable to the screen's native pixels and
+//   -[CAMetalLayer nextDrawable]       sizes the real drawable to the output size (screen, capped) and
 //                                      returns a proxy drawable whose texture is an offscreen
 //                                      texture at the game's resolution.
 //   -[MTLCommandBuffer presentDrawable:] when given a proxy, appends a MetalFX spatial upscale
@@ -15,8 +15,9 @@
 //                                      buffer, then presents the real drawable. Same command
 //                                      buffer = GPU ordering for free, no extra latency.
 //
-// Sizing: input = last setDrawableSize, else the layer's bounds * contentsScale; output = native
-// pixel size of the main display's mode (CoreGraphics), so macOS can present Direct. Only upscales
+// Sizing: input = last setDrawableSize, else the layer's bounds * contentsScale; output = pixel size
+// of the main display's mode (CoreGraphics) scaled down, aspect kept, to fit the cap (default
+// 1920x1080: never upscale to 2K; macOS stretches the drawable to a bigger screen). Only upscales
 // when input is smaller than output in both dimensions (and >= 64 px); otherwise pure passthrough.
 //
 // Off unless WYNIX_UPSCALE=1. Any failure (no MetalFX, unsupported format, odd sizes) falls
@@ -29,6 +30,8 @@
 //   WYNIX_UPSCALE_LOG=1        log decisions to stderr
 //   WYNIX_UPSCALE_OUTPUT=WxH   TEST ONLY: output size when the layer has no window/screen
 //                              (the offscreen test harness); overrides the display size
+//                              (the cap below still applies)
+//   WYNIX_UPSCALE_MAX=WxH      cap on the output size (default 1920x1080); a smaller display is kept
 
 #import <Metal/Metal.h>
 #import <MetalFX/MetalFX.h>
@@ -42,7 +45,7 @@
 static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
-static NSUInteger gTestOutW, gTestOutH;
+static NSUInteger gTestOutW, gTestOutH, gMaxW = 1920, gMaxH = 1080;
 static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
 
@@ -193,6 +196,10 @@ static CGSize outputSize(void) {
         else {
             CGDisplayModeRef m = CGDisplayCopyDisplayMode(CGMainDisplayID());
             if (m) { out = CGSizeMake(CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m)); CGDisplayModeRelease(m); }
+        }
+        if (out.width > gMaxW || out.height > gMaxH) {  // fit within the cap, aspect preserved
+            CGFloat k = MIN(gMaxW / out.width, gMaxH / out.height);
+            out = CGSizeMake(round(out.width * k), round(out.height * k));
         }
         cached = out; at = now;
         return out;
@@ -374,6 +381,8 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
     const char *to = getenv("WYNIX_UPSCALE_OUTPUT");
     if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }
+    const char *mx = getenv("WYNIX_UPSCALE_MAX");
+    if (mx) { unsigned w = 0, h = 0; if (sscanf(mx, "%ux%u", &w, &h) == 2 && w >= 64 && h >= 64) { gMaxW = w; gMaxH = h; } }
     Method ms = class_getInstanceMethod([CAMetalLayer class], @selector(setDrawableSize:));
     if (!ms) return;
     gOrigSetDrawableSize = method_getImplementation(ms);
