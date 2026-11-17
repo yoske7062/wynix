@@ -10,6 +10,9 @@
 //   -[CAMetalLayer nextDrawable]       sizes the real drawable to the output size (screen, capped) and
 //                                      returns a proxy drawable whose texture is an offscreen
 //                                      texture at the game's resolution.
+//   -[MTL4CommandQueue waitForDrawable:/signalDrawable:] Metal 4 presentation (D3DMetal 4.0): wait on
+//                                      the real drawable; before signalling, upscale in our own MTL4
+//                                      command buffer committed on the same queue.
 //   -[MTLCommandBuffer presentDrawable:] when given a proxy, appends a MetalFX spatial upscale
 //                                      (proxy texture -> real drawable) to the SAME command
 //                                      buffer, then presents the real drawable. Same command
@@ -46,6 +49,7 @@ static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
 static volatile BOOL gD3DMetalLoaded;  // only D3DMetal games are upscaled; DXMT/DXVK/Steam are not
 static NSUInteger gTestOutW, gTestOutH, gMaxW = 1920, gMaxH = 1080;
+static IMP gOrigWaitDrawable, gOrigSignalDrawable;  // MTL4CommandQueue (Metal 4 presentation, D3DMetal 4.0)
 static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
 
@@ -58,6 +62,10 @@ static char kStateKey, kInfoKey;
 @property MTLPixelFormat format;
 @property id<MTLTexture> label;   // pre-rendered "WYNIX Boost" box, same format as the drawable
 @property BOOL labelTried;
+@property MTLFXSpatialScalerDescriptor *desc;
+@property id mtl4Scaler;       // id<MTL4FXSpatialScaler>, created lazily on the first Metal 4 frame
+@property id mtl4Residency;    // id<MTLResidencySet> holding the ring textures
+@property BOOL mtl4Tried;
 @end
 @implementation WynixLayerState
 @end
@@ -75,6 +83,7 @@ static char kStateKey, kInfoKey;
 @property id<CAMetalDrawable> real;
 @property id<MTLTexture> texture;
 @property WynixLayerState *state;
+@property BOOL mtl4Handled;   // the Metal 4 queue path upscaled this frame; present must not disable proxying
 @end
 
 @implementation WynixProxyDrawable
@@ -84,9 +93,9 @@ static char kStateKey, kInfoKey;
 - (void)addPresentedHandler:(MTLDrawablePresentedHandler)block { [self.real addPresentedHandler:block]; }
 // Direct presents (no command buffer) cannot carry the upscale; show the real drawable.
 // Seeing one means this game presents some other way: stop proxying from the next frame.
-- (void)present { gDisabled = YES; [self.real present]; }
-- (void)presentAtTime:(CFTimeInterval)t { gDisabled = YES; [self.real presentAtTime:t]; }
-- (void)presentAfterMinimumDuration:(CFTimeInterval)d { gDisabled = YES; [self.real presentAfterMinimumDuration:d]; }
+- (void)present { if (!self.mtl4Handled) gDisabled = YES; [self.real present]; }
+- (void)presentAtTime:(CFTimeInterval)t { if (!self.mtl4Handled) gDisabled = YES; [self.real presentAtTime:t]; }
+- (void)presentAfterMinimumDuration:(CFTimeInterval)d { if (!self.mtl4Handled) gDisabled = YES; [self.real presentAfterMinimumDuration:d]; }
 // Anything else (private selectors Metal may probe) goes to the real drawable.
 - (id)forwardingTargetForSelector:(SEL)sel { return self.real; }
 @end
@@ -125,6 +134,7 @@ static WynixLayerState *stateFor(CAMetalLayer *layer, NSUInteger inW, NSUInteger
         default:
             desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModePerceptual;
     }
+    s.desc = desc;
     id<MTLFXSpatialScaler> scaler = [desc newSpatialScalerWithDevice:dev];
     if (!scaler) { LOG("scaler creation failed for format %lu", (unsigned long)fmt); return nil; }
 
@@ -347,6 +357,84 @@ static void hookedPresentAfter(id<MTLCommandBuffer> self, SEL _cmd, id<MTLDrawab
     ((void (*)(id, SEL, id, CFTimeInterval))gOrigPresentAfter)(self, _cmd, upscaleInto(self, d), t);
 }
 
+
+// ---- Metal 4 presentation: [queue waitForDrawable:d]; commit; [queue signalDrawable:d]; [d present] ----
+// Same idea as the command buffer path, but the upscale goes into our own MTL4 command buffer
+// committed on the game's queue right before signalDrawable:, so queue order puts it after the game's work.
+
+@interface WynixMTL4Slot : NSObject  // per queue: one allocator + command buffer, reused once the GPU is done
+@property id allocator, cb;
+@property volatile BOOL busy;
+@end
+@implementation WynixMTL4Slot
+@end
+static char kMTL4SlotKey;
+
+static id gMTL4Compiler;  // id<MTL4Compiler>, one per process (one device)
+
+static id mtl4ScalerFor(WynixLayerState *s, id<MTLDevice> dev) API_AVAILABLE(macos(26.0)) {
+    if (s.mtl4Scaler || s.mtl4Tried) return s.mtl4Scaler;
+    s.mtl4Tried = YES;
+    if (!gMTL4Compiler) gMTL4Compiler = [dev newCompilerWithDescriptor:[MTL4CompilerDescriptor new] error:NULL];
+    if (!gMTL4Compiler || !s.desc) return nil;
+    id<MTL4FXSpatialScaler> sc = [s.desc newSpatialScalerWithDevice:dev compiler:gMTL4Compiler];
+    MTLResidencySetDescriptor *rd = [MTLResidencySetDescriptor new];
+    id<MTLResidencySet> rs = [dev newResidencySetWithDescriptor:rd error:NULL];
+    if (!sc || !rs) return nil;
+    for (id<MTLTexture> t in s.ring) [rs addAllocation:t];
+    [rs commit];
+    s.mtl4Residency = rs; s.mtl4Scaler = sc;
+    LOG("Metal 4 scaler ready");
+    return sc;
+}
+
+// Encodes proxy texture -> real texture on `queue`. NO = could not (caller disables proxying).
+static BOOL mtl4Upscale(id<MTL4CommandQueue> queue, WynixProxyDrawable *p) API_AVAILABLE(macos(26.0)) {
+    id<MTLDevice> dev = p.real.layer.device;
+    WynixMTL4Slot *slot = objc_getAssociatedObject(queue, &kMTL4SlotKey);
+    if (!slot) { slot = [WynixMTL4Slot new]; objc_setAssociatedObject(queue, &kMTL4SlotKey, slot, OBJC_ASSOCIATION_RETAIN); }
+    @synchronized (p.state) {
+        id<MTL4FXSpatialScaler> sc = mtl4ScalerFor(p.state, dev);
+        if (!sc) return NO;
+        // ponytail: one cached buffer per queue; if the GPU still holds it, use a throwaway one
+        WynixMTL4Slot *use = slot.busy ? [WynixMTL4Slot new] : slot;
+        if (!use.cb) { use.allocator = [dev newCommandAllocator]; use.cb = [dev newCommandBuffer]; }
+        id<MTL4CommandAllocator> al = use.allocator; id<MTL4CommandBuffer> cb = use.cb;
+        if (!al || !cb) return NO;
+        [al reset];  // idle: the last commit's feedback already fired
+        use.busy = YES;
+        [cb beginCommandBufferWithAllocator:al];
+        [cb useResidencySet:p.state.mtl4Residency];
+        id<MTLResidencySet> lrs = p.real.layer.residencySet;
+        if (lrs) [cb useResidencySet:lrs];
+        sc.colorTexture = p.texture;
+        sc.outputTexture = p.real.texture;
+        [sc encodeToCommandBuffer:cb];
+        [cb endCommandBuffer];
+        MTL4CommitOptions *o = [MTL4CommitOptions new];
+        [o addFeedbackHandler:^(id<MTL4CommitFeedback> f) { use.busy = NO; }];
+        [queue commit:&cb count:1 options:o];
+    }
+    return YES;
+}
+
+static void hookedWaitForDrawable(id self, SEL _cmd, id d) {
+    if ([(NSObject *)d isKindOfClass:[WynixProxyDrawable class]]) d = ((WynixProxyDrawable *)d).real;
+    ((void (*)(id, SEL, id))gOrigWaitDrawable)(self, _cmd, d);
+}
+
+static void hookedSignalDrawable(id self, SEL _cmd, id d) {
+    if ([(NSObject *)d isKindOfClass:[WynixProxyDrawable class]]) {
+        WynixProxyDrawable *p = (WynixProxyDrawable *)d;
+        if (@available(macos 26.0, *)) {
+            if (mtl4Upscale(self, p)) p.mtl4Handled = YES;
+        }
+        if (!p.mtl4Handled) { gDisabled = YES; LOG("Metal 4 upscale failed, disabled"); }
+        d = p.real;
+    }
+    ((void (*)(id, SEL, id))gOrigSignalDrawable)(self, _cmd, d);
+}
+
 // Hooks presentDrawable: on the command buffer class this device hands out. Done lazily on the
 // first Wine Metal frame so Steam, wineserver and other Wine processes never create a device.
 static IMP hookOne(Class c, SEL sel, IMP imp) {
@@ -365,6 +453,14 @@ static void hookPresent(id<MTLDevice> dev) {
     gOrigPresentAt = hookOne(cbClass, @selector(presentDrawable:atTime:), (IMP)hookedPresentAt);
     gOrigPresentAfter = hookOne(cbClass, @selector(presentDrawable:afterMinimumDuration:), (IMP)hookedPresentAfter);
     LOG("command buffer class %s", class_getName(cbClass));
+    if (@available(macos 26.0, *)) {  // Metal 4 queue class: absent on older macOS, then only the path above exists
+        if ([dev respondsToSelector:@selector(newMTL4CommandQueue)]) {
+            Class qc = [[dev newMTL4CommandQueue] class];
+            gOrigWaitDrawable = qc ? hookOne(qc, @selector(waitForDrawable:), (IMP)hookedWaitForDrawable) : NULL;
+            gOrigSignalDrawable = qc ? hookOne(qc, @selector(signalDrawable:), (IMP)hookedSignalDrawable) : NULL;
+            LOG("MTL4 queue class %s %s", qc ? class_getName(qc) : "-", gOrigSignalDrawable ? "hooked" : "not hooked");
+        }
+    }
 }
 
 static void onImageAdded(const struct mach_header *mh, intptr_t slide) {

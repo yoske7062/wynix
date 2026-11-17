@@ -24,3 +24,11 @@ echo "$off"; [[ "$off" == "render 1600x900 frames 100 errors 0"* ]]
 # Label on: same render size, no GPU errors (label blit shares the game's command buffer).
 lab="$(WYNIX_UPSCALE_LABEL=1 WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 500 1600 900)"
 echo "$lab"; [[ "$lab" == "render 1600x900 frames 500 errors 0"* ]]
+# Metal 4 presentation (D3DMetal 4.0): waitForDrawable / commit / signalDrawable / present on an MTL4 queue.
+# Skipped when this macOS has no Metal 4 (harness exits 4).
+set +e
+m4="$(HARNESS_MTL4=1 WYNIX_UPSCALE_LOG=1 WYNIX_UPSCALE_ANY_LAYER=1 WYNIX_UPSCALE_OUTPUT=2560x1440 "$tmp/harness" 300 1600 900 2>&1)"; rc=$?
+set -e
+echo "$m4"
+if [[ $rc == 4 ]]; then echo "MTL4 unavailable: skipped"
+else [[ "$m4" == *"upscaling 1600x900 -> 1920x1080"* && "$m4" == *"Metal 4 scaler ready"* && "$m4" == *"render 1600x900 frames 300 errors 0"* && "$m4" != *"disabled"* ]]; fi
