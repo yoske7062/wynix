@@ -386,6 +386,12 @@ enum D3DMetalSwap {
             xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
             xattr.arguments = ["-dr", "com.apple.quarantine", temp.path]
             try? xattr.run(); xattr.waitUntilExit()
+            // 4.0b3 ships the DLSS->MetalFX shim as nvngx-on-metalfx.*; the Read Me says to rename it to nvngx.*.
+            for (dir, ext) in [("x86_64-unix", "so"), ("x86_64-windows", "dll")] {
+                let wine = temp.appendingPathComponent("wine/\(dir)")
+                let from = wine.appendingPathComponent("nvngx-on-metalfx.\(ext)"), to = wine.appendingPathComponent("nvngx.\(ext)")
+                if fm.fileExists(atPath: from.path), !fm.fileExists(atPath: to.path) { try? fm.moveItem(at: from, to: to) }
+            }
             if fm.fileExists(atPath: backup.path) { try fm.moveItem(at: live, to: old) }  // 3.0 already saved
             else { try fm.moveItem(at: live, to: backup) }
             do { try fm.moveItem(at: temp, to: live) } catch {

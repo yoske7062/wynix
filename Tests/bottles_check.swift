@@ -54,9 +54,17 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
             }
             let renderer = root.appendingPathComponent("renderer"), staged = root.appendingPathComponent("staged")
             make(renderer.appendingPathComponent("d3dmetal"), "3.0"); make(staged, "4.0b3")
+            for (d, e) in [("x86_64-unix", "so"), ("x86_64-windows", "dll")] {
+                let w = staged.appendingPathComponent("wine/\(d)")
+                try! fm.createDirectory(at: w, withIntermediateDirectories: true)
+                try! Data().write(to: w.appendingPathComponent("nvngx-on-metalfx.\(e)"))
+            }
             let ver = { D3DMetalSwap.version(renderer: renderer) }
             try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: true)
             precondition(ver() == "4.0b3" && fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal-3.0").path), "swap to 4 keeps backup")
+            precondition(fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal/wine/x86_64-unix/nvngx.so").path)
+                && fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal/wine/x86_64-windows/nvngx.dll").path)
+                && fm.fileExists(atPath: staged.appendingPathComponent("wine/x86_64-unix/nvngx-on-metalfx.so").path), "nvngx renamed on the copy only")
             try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: true)  // idempotent
             try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: false)
             precondition(ver() == "3.0" && !fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal-3.0").path), "swap back to 3.0")
