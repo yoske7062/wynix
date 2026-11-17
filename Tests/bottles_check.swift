@@ -43,6 +43,27 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         let store = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
         precondition(store.contains("guard bottleExists(bottle) else { completion?(); return }") && store.contains("fileExists(atPath: bottle.url.path) else { return false }"), "optimize/dxmt.conf must not recreate a deleted bottle")
         precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
+        // D3DMetal 3.0 -> 4 -> 3.0 swap on a fake renderer dir.
+        do {
+            let fm = FileManager.default
+            let root = fm.temporaryDirectory.appendingPathComponent("wynix-d3dm-\(UUID().uuidString)")
+            func make(_ dir: URL, _ v: String) {
+                let r = dir.appendingPathComponent("external/D3DMetal.framework/Versions/A/Resources")
+                try! fm.createDirectory(at: r, withIntermediateDirectories: true)
+                try! (["CFBundleShortVersionString": v] as NSDictionary).write(to: r.appendingPathComponent("Info.plist"))
+            }
+            let renderer = root.appendingPathComponent("renderer"), staged = root.appendingPathComponent("staged")
+            make(renderer.appendingPathComponent("d3dmetal"), "3.0"); make(staged, "4.0b3")
+            let ver = { D3DMetalSwap.version(renderer: renderer) }
+            try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: true)
+            precondition(ver() == "4.0b3" && fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal-3.0").path), "swap to 4 keeps backup")
+            try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: true)  // idempotent
+            try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: false)
+            precondition(ver() == "3.0" && !fm.fileExists(atPath: renderer.appendingPathComponent("d3dmetal-3.0").path), "swap back to 3.0")
+            try! D3DMetalSwap.swap(renderer: renderer, staged: staged, to4: true)
+            precondition(ver() == "4.0b3", "second swap to 4")
+            try? fm.removeItem(at: root)
+        }
         // Per-game DirectX detector on fake folders.
         let fm = FileManager.default
         func fake(_ files: [String: String]) -> URL {

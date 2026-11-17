@@ -353,6 +353,56 @@ final class LockedData: @unchecked Sendable {
     var data: Data { lock.lock(); defer { lock.unlock() }; return buffer }
 }
 
+/// Swaps a bottle's renderer/d3dmetal between Apple's D3DMetal 3.0 (shipped) and 4.0 beta (staged).
+/// The 3.0 folder is kept as renderer/d3dmetal-3.0 and never deleted while 4 is active.
+/// ponytail: 4.0b3 is staged by hand in ~/Library/Application Support/Steamy/D3DMetal/4.0b3 on the
+/// owner's Mac only; shipping it to other users needs a download step later (until then they stay on 3.0).
+enum D3DMetalSwap {
+    static let staged = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Steamy/D3DMetal/4.0b3")
+    static var stagedAvailable: Bool {
+        FileManager.default.fileExists(atPath: staged.appendingPathComponent("external/D3DMetal.framework").path)
+    }
+
+    static func version(renderer: URL) -> String? {
+        let info = renderer.appendingPathComponent("d3dmetal/external/D3DMetal.framework/Versions/A/Resources/Info.plist")
+        return (NSDictionary(contentsOf: info))?["CFBundleShortVersionString"] as? String
+    }
+
+    /// `renderer` is Contents/Frameworks/renderer. Copy to a temp sibling first, then rename.
+    static func swap(renderer: URL, staged: URL, to4: Bool) throws {
+        let fm = FileManager.default
+        let live = renderer.appendingPathComponent("d3dmetal"), backup = renderer.appendingPathComponent("d3dmetal-3.0")
+        let temp = renderer.appendingPathComponent(".d3dmetal-new"), old = renderer.appendingPathComponent(".d3dmetal-old")
+        try? fm.removeItem(at: temp); try? fm.removeItem(at: old)
+        if to4 {
+            if version(renderer: renderer)?.hasPrefix("4") == true { return }
+            let ditto = Process()
+            ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            ditto.arguments = [staged.path, temp.path]
+            try ditto.run(); ditto.waitUntilExit()
+            guard ditto.terminationStatus == 0 else { try? fm.removeItem(at: temp); throw CocoaError(.fileWriteUnknown) }
+            let xattr = Process()
+            xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            xattr.arguments = ["-dr", "com.apple.quarantine", temp.path]
+            try? xattr.run(); xattr.waitUntilExit()
+            if fm.fileExists(atPath: backup.path) { try fm.moveItem(at: live, to: old) }  // 3.0 already saved
+            else { try fm.moveItem(at: live, to: backup) }
+            do { try fm.moveItem(at: temp, to: live) } catch {
+                if !fm.fileExists(atPath: backup.path) || fm.fileExists(atPath: old.path) { try? fm.moveItem(at: old, to: live) }
+                else { try? fm.moveItem(at: backup, to: live) }
+                throw error
+            }
+            try? fm.removeItem(at: old)
+        } else {
+            guard fm.fileExists(atPath: backup.path) else { return }
+            try fm.moveItem(at: live, to: old)
+            do { try fm.moveItem(at: backup, to: live) } catch { try? fm.moveItem(at: old, to: live); throw error }
+            try? fm.removeItem(at: old)
+        }
+    }
+}
+
 @MainActor
 final class BottleStore: ObservableObject {
     static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Sikarugir")
@@ -678,6 +728,7 @@ final class BottleStore: ObservableObject {
     /// winemac driver and the Sikarugir launcher. Takes effect on the bottle's next start.
     func optimizeForGaming(_ bottle: Bottle, completion: (() -> Void)? = nil) {
         guard bottleExists(bottle) else { completion?(); return }
+        applyD3DMetalPreference(bottle)
         var values: [String: Any] = [
             "WINEMSYNC": 1,                     // Apple-native sync primitives, lowest CPU overhead
             "WINEESYNC": 1,                     // fallback if MSync is unavailable
@@ -1060,6 +1111,44 @@ final class BottleStore: ObservableObject {
                                       "DXVK_HUD": mode == nil ? nil : (fps ? "fps" : "full")]
         for (key, value) in hud { setEnvironment(bottle, key, value) }
         setEnvironment(bottle, "WYNIX_UPSCALE_LABEL", mode == nil ? nil : "1")  // dylib draws "WYNIX Boost MetalFX in -> out"
+    }
+
+    // MARK: D3DMetal 4 (beta) with 3.0 fallback
+
+    private func rendererDir(_ bottle: Bottle) -> URL { bottle.contents.appendingPathComponent("Frameworks/renderer") }
+
+    func d3dmetalVersion(_ bottle: Bottle) -> String? { D3DMetalSwap.version(renderer: rendererDir(bottle)) }
+
+    /// Default is 4; only an explicit WynixD3DMetal = "3" keeps 3.0.
+    func wantsD3DMetal3(_ bottle: Bottle) -> Bool { plistDictionary(bottle)["WynixD3DMetal"] as? String == "3" }
+
+    /// Refuses while Wine runs. Returns true when the bottle ends on the requested version.
+    @discardableResult
+    func setD3DMetal4(_ bottle: Bottle, on: Bool, quiet: Bool = false) -> Bool {
+        guard bottleExists(bottle) else { return false }
+        if Self.windowsProgramsRunning {
+            if !quiet { alertMessage = "Close Steam and other running programs first, then change the D3DMetal version." }
+            return false
+        }
+        do {
+            if on && !D3DMetalSwap.stagedAvailable { return false }
+            try D3DMetalSwap.swap(renderer: rendererDir(bottle), staged: D3DMetalSwap.staged, to4: on)
+        } catch {
+            if !quiet { alertMessage = "Could not switch D3DMetal: \(error.localizedDescription)" }
+            return false
+        }
+        if !quiet { setPlist(bottle, ["WynixD3DMetal": on ? "4" : "3"]) }
+        // D3DMetal 4 honors D3DM_MAX_FPS (3.0 does not): same 60 FPS cap DXVK/DXMT get, for fanless Macs.
+        setEnvironment(bottle, "D3DM_MAX_FPS", d3dmetalVersion(bottle)?.hasPrefix("4") == true ? "60" : nil)
+        return true
+    }
+
+    /// Optimize / Play: move to 4 unless the user chose 3.0. Silent; skipped while Wine runs (next time).
+    func applyD3DMetalPreference(_ bottle: Bottle) {
+        guard D3DMetalSwap.stagedAvailable, !wantsD3DMetal3(bottle) else { return }
+        let is4 = d3dmetalVersion(bottle)?.hasPrefix("4") == true
+        if !is4 { setD3DMetal4(bottle, on: true, quiet: true) }
+        else { setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
     }
 
     /// DXMT/upscaler/HUD env vars are read when Wine starts, so a running bottle needs a restart.
@@ -1840,6 +1929,11 @@ struct BottleSidePanel: View {
                          isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
             simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
+            if D3DMetalSwap.stagedAvailable, let version = store.d3dmetalVersion(bottle) {
+                simpleToggle("Use D3DMetal 3.0 (compatibility)",
+                             detail: "D3DMetal 4 (beta) is the default. Turn this on if a game crashes or looks wrong. Using D3DMetal \(version)",
+                             isOn: store.wantsD3DMetal3(bottle)) { store.setD3DMetal4(bottle, on: !$0) }
+            }
             simpleToggle("Show FPS", detail: "See the frame rate while you play",
                          isOn: store.hudMode(bottle) == "fps") { store.setHUD(bottle, $0 ? "fps" : nil) }
             simpleToggle("Show advanced stats in game", detail: "Resolution, GPU time, frame interval and MetalFX status",
