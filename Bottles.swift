@@ -85,6 +85,60 @@ enum GraphicsBackend: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which DirectX version a Steam game really renders with. Byte-scanning alone is wrong for
+/// engines that ship both (Unity, RE Engine), so engine markers come first.
+enum GameAPI: String {
+    case dx12, dx11, unknown
+
+    static func detect(folder: URL) -> GameAPI {
+        let fm = FileManager.default
+        let items = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey])) ?? []
+        func lower(_ u: URL) -> String { u.lastPathComponent.lowercased() }
+        // RE Engine: "TargetPlatform=DirectX12" in a *config.ini.
+        for ini in items where lower(ini).hasSuffix("config.ini") {
+            guard (try? ini.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 < 1_000_000,
+                  let text = try? String(contentsOf: ini, encoding: .utf8) else { continue }
+            for line in text.split(whereSeparator: \.isNewline) {
+                switch line.filter({ !$0.isWhitespace }).lowercased() {
+                case "targetplatform=directx12": return .dx12
+                case "targetplatform=directx11": return .dx11
+                default: break
+                }
+            }
+        }
+        // Unity: DX11 unless boot.config forces d3d12.
+        if let data = items.first(where: { lower($0).hasSuffix("_data") && (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) {
+            let boot = (try? String(contentsOf: data.appendingPathComponent("boot.config"), encoding: .utf8))?.lowercased() ?? ""
+            return boot.contains("d3d12") ? .dx12 : .dx11
+        }
+        // Root .exe files only (not DLLs). ponytail: three casings of the name, not a full case-insensitive scan.
+        var has11 = false
+        for exe in items.filter({ $0.pathExtension.lowercased() == "exe" }).prefix(8) {
+            guard let handle = try? FileHandle(forReadingFrom: exe), let data = try? handle.read(upToCount: 64 << 20) else { continue }
+            try? handle.close()
+            func has(_ n: String) -> Bool { [n, n.uppercased().replacingOccurrences(of: ".DLL", with: ".dll"), n.uppercased()].contains { data.range(of: Data($0.utf8)) != nil } }
+            if has("d3d12.dll") { return .dx12 }
+            if has("d3d11.dll") { has11 = true }
+        }
+        return has11 ? .dx11 : .unknown
+    }
+
+    /// Finds <library>/steamapps/common/<installDir> in the Steam bottle's libraries (main one plus libraryfolders.vdf).
+    static func steamFolder(in bottle: Bottle, installDirectory: String) -> URL? {
+        let main = bottle.steamDir.appendingPathComponent("steamapps")
+        var roots = [main]
+        let vdf = (try? String(contentsOf: main.appendingPathComponent("libraryfolders.vdf"), encoding: .utf8)) ?? ""
+        for line in vdf.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "\"", omittingEmptySubsequences: false)
+            guard parts.count >= 4, parts[1] == "path",
+                  let url = bottle.unixURL(windowsPath: parts[3].replacingOccurrences(of: "\\\\", with: "\\")) else { continue }
+            roots.append(url.appendingPathComponent("steamapps"))
+        }
+        return roots.map { $0.appendingPathComponent("common/\(installDirectory)") }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+}
+
 let windowsVersions: [(id: String, title: String)] = [
     ("win11", "Windows 11"), ("win10", "Windows 10"), ("win81", "Windows 8.1"),
     ("win8", "Windows 8"), ("win7", "Windows 7"), ("winxp", "Windows XP")
@@ -1755,7 +1809,7 @@ struct BottleSidePanel: View {
                 macDriver["RetinaMode"] = on ? "y" : "n"
                 store.importRegistry(bottle, [BottleStore.macDriverKey: ["RetinaMode": on ? "\"y\"" : "\"n\""]])
             }
-            simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to 1920×1080.",
+            simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to your screen's shape, up to 1080p.",
                          isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
             simpleToggle("DirectX 11 compatibility mode (DXMT)", detail: "Only for DirectX 11 games that look wrong or run worse on the default",
                          isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }

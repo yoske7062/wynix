@@ -49,6 +49,7 @@ final class InstallerModel: ObservableObject {
 
     private var process: Process?
     private var pendingPlay: SteamGame?
+    private var pendingPlayExtras: (renderer: String, status: String?) = ("", nil)
     private var runtimeProcess: Process?
     private var pendingOutput = ""
     private var statusTimer: AnyCancellable?
@@ -167,14 +168,16 @@ final class InstallerModel: ObservableObject {
     }
 
     /// Starts Steam if needed, then launches the game through `steam -applaunch`.
-    func play(_ game: SteamGame) {
+    /// `renderer` (d3dmetal|dxmt) is what the game needs; setup.sh restarts Steam if it booted with the other one.
+    func play(_ game: SteamGame, renderer: String = "", status: String? = nil) {
         if process != nil {
             pendingPlay = game  // one slot, latest wins; runs when the current task ends
+            pendingPlayExtras = (renderer, status)
             message = L10n.format("play.queued", game.name)
             return
         }
-        message = L10n.format("play.starting", game.name)
-        run(mode: "play", arguments: [game.id], changesMainState: false)
+        message = status ?? L10n.format("play.starting", game.name)
+        run(mode: "play", arguments: [game.id] + (renderer.isEmpty ? [] : [renderer]), changesMainState: false)
     }
 
     func createShortcut(for game: SteamGame) {
@@ -250,7 +253,10 @@ final class InstallerModel: ObservableObject {
                 }
                 if let next = self?.pendingPlay {
                     self?.pendingPlay = nil
-                    self?.play(next)  // runs even after a failed or timed-out task
+                    let failure = finished.terminationStatus != 0 ? self?.message : nil
+                    let extras = self?.pendingPlayExtras ?? ("", nil)
+                    self?.play(next, renderer: extras.0, status: extras.1)  // runs even after a failed or timed-out task
+                    if let failure, !failure.isEmpty, let m = self?.message { self?.message = failure + "\n" + m }
                 }
             }
         }
@@ -259,7 +265,8 @@ final class InstallerModel: ObservableObject {
         do {
             try task.run()
             // watchdog: a hung setup.sh must never keep `process` set (and Play queued) forever
-            let limit: TimeInterval = ["play", "list-games", "create-shortcut", "launch", "check"].contains(mode) ? 90 : 3600
+            let limit: TimeInterval = ["list-games", "create-shortcut", "check"].contains(mode) ? 90
+                : ["play", "launch"].contains(mode) ? 180 : 3600  // play/launch may stop_wrapper (up to ~25 s) then cold start
             DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self, weak task] in
                 guard let self, let task, self.process === task, task.isRunning else { return }
                 self.message = L10n.string("error.taskTimedOut")
@@ -714,15 +721,34 @@ struct GameLibraryView: View {
     @State private var startingID: String?
     @State private var confirmQuitSteam = false
     @State private var pendingPlay: SteamGame?
+    @State private var pendingAPI: GameAPI = .unknown
 
     private var steamBottle: Bottle? { store.bottles.first { $0.isSteam } }
 
-    private func play(_ game: SteamGame, checkOptimized: Bool = true) {
-        if checkOptimized, let bottle = steamBottle, !store.isOptimized(bottle) {
-            pendingPlay = game
-            return
+    /// Detects the game's DirectX version and, unless the bottle already has that profile, asks before applying it.
+    private func play(_ game: SteamGame) {
+        guard let bottle = steamBottle else { startPlay(game); return }
+        let folder = GameAPI.steamFolder(in: bottle, installDirectory: game.installDirectory)
+        let api = folder.map { GameAPI.detect(folder: $0) } ?? .unknown
+        let ready = store.isOptimized(bottle) && (api == .dx11 ? store.boost(bottle) : store.upscaleDX12(bottle))
+        if ready { startPlay(game) } else { pendingAPI = api; pendingPlay = game }
+    }
+
+    private func applyAndPlay(_ game: SteamGame, _ api: GameAPI) {
+        guard let bottle = steamBottle else { return startPlay(game) }
+        let go = {
+            // dx12 and unknown both take the D3DMetal path (it also runs DX11).
+            if api == .dx11 { store.setBoost(bottle, true, notify: false) } else { store.setUpscaleDX12(bottle, true, notify: false) }
+            store.setPlist(bottle, ["WynixGameProfile_\(game.id)": api == .dx11 ? "dx11" : "dx12"])
+            startPlay(game, status: L10n.format(api == .dx11 ? "play.detected.dx11" : "play.detected.dx12", game.name))
         }
-        model.play(game)
+        if store.isOptimized(bottle) { go() } else { store.optimizeForGaming(bottle, completion: go) }
+    }
+
+    private func startPlay(_ game: SteamGame, status: String? = nil) {
+        // Renderer follows the bottle as it is now (Boost already written for this game if applied).
+        let renderer = steamBottle.map { store.boost($0) ? "dxmt" : "d3dmetal" } ?? ""
+        model.play(game, renderer: renderer, status: status)
         GameModeBooster.shared.engage { [model] in model.message = $0 }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { startingID = game.id }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
@@ -867,18 +893,15 @@ struct GameLibraryView: View {
         .onAppear {
             if model.state == .ready { model.loadGames() }
         }
-        .alert("Optimize before playing?", isPresented: Binding(
+        .alert(pendingPlay.map { L10n.format("play.profile.title", $0.name) } ?? "", isPresented: Binding(
             get: { pendingPlay != nil }, set: { if !$0 { pendingPlay = nil } }
         )) {
-            Button("Optimize & Play") {
-                if let game = pendingPlay, let bottle = steamBottle {
-                    store.optimizeForGaming(bottle) { play(game, checkOptimized: false) }
-                }
-            }
-            Button("Play Anyway") { if let game = pendingPlay { play(game, checkOptimized: false) } }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("play.profile.apply")) { if let game = pendingPlay { applyAndPlay(game, pendingAPI) } }
+                .keyboardShortcut(.defaultAction)
+            Button(L10n.string("play.profile.skip")) { if let game = pendingPlay { startPlay(game) } }
+            Button(L10n.string("common.cancel"), role: .cancel) {}
         } message: {
-            Text("Steam games aren't optimized yet. Optimizing gives better performance and takes a second.")
+            Text(L10n.format("play.profile.body", L10n.string(pendingAPI == .dx11 ? "play.profile.dx11" : "play.profile.dx12")))
         }
         .alert(L10n.string("alert.stop.title"), isPresented: $confirmQuitSteam) {
             Button(L10n.string("common.cancel"), role: .cancel) {}

@@ -77,4 +77,12 @@
 "bottle.invalidName" = "Invalid bottle name.";
 "play.queued" = "Starting %@ when Steam is ready…";
 "play.starting" = "Starting %@…";
+"play.profile.title" = "%@ detected";
+"play.profile.dx12" = "Optimization + DirectX 12 Boost (MetalFX)";
+"play.profile.dx11" = "Optimization + DirectX 11 Boost (DXMT, 60 FPS)";
+"play.profile.body" = "Recommended: %@\nThis applies the best settings for this game. Steam restarts if it needs a different graphics layer.";
+"play.profile.apply" = "Apply and Play";
+"play.profile.skip" = "Play without changes";
+"play.detected.dx12" = "%@: DirectX 12 detected, applying Boost (MetalFX)…";
+"play.detected.dx11" = "%@: DirectX 11 detected, applying DX11 Boost…";
 "shortcut.busy" = "Busy right now. Try again in a moment.";

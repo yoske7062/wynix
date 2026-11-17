@@ -84,7 +84,7 @@ steam_process_candidates() {
 }
 
 # Bounds a command that can hang (lsof, wine reg) so Play never waits forever. Usage: with_timeout SECONDS cmd...
-with_timeout() { /usr/bin/perl -e 'alarm shift; exec @ARGV' "$@"; }
+with_timeout() { /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "$@"; }
 
 process_belongs_to_wrapper() {
   local pid="$1"
@@ -202,6 +202,18 @@ steam_autorun_off() {
     steam_remove_autorun_live
   else
     steam_disable_autorun "$PREFIX_ROOT/user.reg"
+  fi
+}
+
+# Remembers which renderer a cold Steam start used and when (mtime), so Play can tell a stale or
+# wrong-renderer Steam from a booting one. Call right after configure_wrapper_plist on a cold start.
+renderer_mark="$APP_CACHE/steam-renderer"
+record_renderer() {
+  /bin/mkdir -p "$APP_CACHE"
+  if [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]]; then
+    printf 'dxmt' > "$renderer_mark"
+  else
+    printf 'd3dmetal' > "$renderer_mark"
   fi
 }
 
@@ -392,6 +404,7 @@ if [[ "${1:-setup}" == "launch" ]]; then
   phase "launching"
   message_key steam_starting
   steam_autorun_off
+  record_renderer
   open_wrapper
   steam_remove_autorun_after_start
   printf '@@STATE|running\n'
@@ -452,14 +465,35 @@ if [[ "${1:-setup}" == "play" ]]; then
   play_bat="$APP_CACHE/play-${app_id}.bat"
   /usr/bin/sed "s/__STEAM_APP_ID__/$app_id/g" "$SCRIPT_DIR/game_launch.bat.template" > "$play_bat"
   # The bat starts Steam itself with -silent when it isn't running, so only the game shows.
-  steam_was_running=0
-  # Booting (wrapper up, client not ready): an earlier Play owns the cold start; just hand over the applaunch.
-  if steam_client_is_running || steam_is_running; then
-    steam_was_running=1
-  else
+  # $3 = renderer the game needs (d3dmetal|dxmt). Swift already wrote SteamyBoost for it, so the
+  # plist can't tell which renderer the RUNNING Steam booted with; a marker written at each cold start can.
+  wanted_renderer="${3:-}"
+  mark_age=9999
+  [[ -f "$renderer_mark" ]] && mark_age=$(( $(/bin/date +%s) - $(/usr/bin/stat -f %m "$renderer_mark") ))
+  cold_start=1
+  if steam_client_is_running; then
+    cold_start=0
+    started_with="$(/bin/cat "$renderer_mark" 2>/dev/null || true)"
+    # Switch renderer only when nothing else is playing; the unknown case (Steam opened elsewhere) stays warm.
+    if [[ -n "$wanted_renderer" && -n "$started_with" && "$started_with" != "$wanted_renderer" ]] \
+       && ! any_steam_game_running; then
+      stop_wrapper || fail_key steam_stop_failed
+      cold_start=1
+    fi
+  elif steam_is_running; then
+    # Wrapper up, client not: booting (cold start under a minute ago) or stalled/leftover wrapper.
+    if (( mark_age < 60 )); then
+      cold_start=0
+    else
+      stop_wrapper || fail_key steam_stalled_cleanup_failed
+    fi
+  fi
+  if (( cold_start )); then
     configure_wrapper_plist "$PLIST"
     steam_autorun_off
+    record_renderer
   fi
+  steam_was_running=$(( 1 - cold_start ))
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-installer "$play_bat" >/dev/null 2>&1 &
   steam_remove_autorun_after_start
   if (( steam_was_running == 0 )); then

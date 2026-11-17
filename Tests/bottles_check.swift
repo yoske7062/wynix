@@ -30,7 +30,7 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         let src = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
         precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")
         precondition(src.contains("if list != bottles"), "reload must not republish an unchanged list")
-        precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next)"), "queued play missing")
+        precondition(app.contains("pendingPlay = game") && app.contains("self?.play(next, renderer"), "queued play missing")
         let setup = (try? String(contentsOfFile: CommandLine.arguments[2].replacingOccurrences(of: "MacSteamSetupApp.swift", with: "Resources/setup.sh"), encoding: .utf8)) ?? ""
         precondition(app.contains("watchdog") && app.contains("error.taskTimedOut"), "run() watchdog missing")
         precondition(!app.contains("if finished.terminationStatus == 0 { self?.play(next) }"), "queued play must run after failures too")
@@ -42,6 +42,28 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(locked.data.count == 500, "LockedData lost bytes")
         let store = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
         precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
+        // Per-game DirectX detector on fake folders.
+        let fm = FileManager.default
+        func fake(_ files: [String: String]) -> URL {
+            let d = fm.temporaryDirectory.appendingPathComponent("wynix-api-\(UUID().uuidString)")
+            for (name, text) in files {
+                let f = d.appendingPathComponent(name)
+                try! fm.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try! Data(text.utf8).write(to: f)
+            }
+            return d
+        }
+        precondition(GameAPI.detect(folder: fake(["re_config.ini": "[x]\r\nTargetPlatform = DirectX12\r\n", "g.exe": "d3d11.dll"])) == .dx12, "RE Engine dx12")
+        precondition(GameAPI.detect(folder: fake(["re_config.ini": "TargetPlatform=DirectX11\n", "g.exe": "d3d12.dll"])) == .dx11, "RE Engine dx11")
+        precondition(GameAPI.detect(folder: fake(["Game_Data/boot.config": "x=1\n", "UnityPlayer.dll": "d3d12.dll"])) == .dx11, "Unity dx11")
+        precondition(GameAPI.detect(folder: fake(["Game_Data/boot.config": "-force-d3d12\n"])) == .dx12, "Unity forced dx12")
+        precondition(GameAPI.detect(folder: fake(["g.exe": "xxD3D12.dllxx d3d11.dll"])) == .dx12, "exe dx12")
+        precondition(GameAPI.detect(folder: fake(["g.exe": "d3d11.dll"])) == .dx11, "exe dx11")
+        precondition(GameAPI.detect(folder: fake(["a.dll": "d3d12.dll"])) == .unknown, "dlls ignored")
+        let empty = fm.temporaryDirectory.appendingPathComponent("wynix-api-empty-\(UUID().uuidString)")
+        try! fm.createDirectory(at: empty, withIntermediateDirectories: true)
+        precondition(GameAPI.detect(folder: empty) == .unknown, "empty unknown")
+        precondition(app.contains("applyAndPlay") && !app.contains("Optimize before playing?"), "auto profile prompt missing")
         let path = CommandLine.arguments[1]
         guard FileManager.default.fileExists(atPath: path) else { print("SKIP: no bottle at \(path)"); return }
         let root = URL(fileURLWithPath: path)

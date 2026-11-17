@@ -77,4 +77,12 @@
 "bottle.invalidName" = "보틀 이름이 올바르지 않습니다.";
 "play.queued" = "Steam이 준비되면 %@을(를) 시작합니다…";
 "play.starting" = "%@을(를) 시작하는 중입니다…";
+"play.profile.title" = "%@ 감지됨";
+"play.profile.dx12" = "최적화 + DirectX 12 부스트 (MetalFX)";
+"play.profile.dx11" = "최적화 + DirectX 11 부스트 (DXMT, 60 FPS)";
+"play.profile.body" = "권장: %@\n이 게임에 가장 알맞은 설정을 적용합니다. 다른 그래픽 레이어가 필요하면 Steam이 다시 시작됩니다.";
+"play.profile.apply" = "적용하고 플레이";
+"play.profile.skip" = "변경 없이 플레이";
+"play.detected.dx12" = "%@: DirectX 12 감지, 부스트(MetalFX) 적용 중…";
+"play.detected.dx11" = "%@: DirectX 11 감지, DX11 부스트 적용 중…";
 "shortcut.busy" = "지금은 작업 중입니다. 잠시 후 다시 시도해 주세요.";
