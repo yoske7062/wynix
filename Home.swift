@@ -299,13 +299,13 @@ struct SettingsView: View {
 
             Section("Help") {
                 HelpItem("Home", "Game stores and your bottles. Press Set Up Steam once, then Open it and sign in with your normal account.")
-                HelpItem("Games", "Every Steam game you installed. Press Play. Right click a game to make a Dock shortcut or hide it.")
+                HelpItem("Games", "Every Steam game you installed. Press Play: WYNIX detects DirectX 11 or 12 and recommends the best settings. Right click a game to make a Dock shortcut or hide it.")
                 HelpItem("Bottles", "A bottle is a small Windows setup that lives inside WYNIX. Each one keeps its own programs and settings, so a broken game can't mess up the rest.")
                 HelpItem("Install from File", "Runs any Windows installer (.exe or .msi), games or not. The program shows up in the bottle and in ~/Applications like a Mac app.")
                 HelpItem("New Bottle", "Makes a separate setup. Use it when one game needs different graphics settings than the others.")
-                HelpItem("Optimize", "Applies the best settings to your bottles in one click: graphics layer, frame cap and Mac shortcuts.")
-                HelpItem("Boost", "Run the game at 1600×900 and MetalFX sharpens it to your screen at a steady 60 FPS. DirectX 11 games only.")
-                HelpItem("Graphics layer", "D3DMetal for DirectX 12, DXMT for DirectX 11, DXVK for launchers. Auto picks for you; change it in a bottle's advanced options if a game looks wrong.")
+                HelpItem("Optimize", "Applies the best settings to your bottles in one click: frame cap and Mac shortcuts. Play also does this for each game.")
+                HelpItem("Boost", "Pick a lower resolution in the game (1280×720 or 1600×900, your screen's shape) and MetalFX sharpens it up to 1080p. Play picks the right mode for each game; DirectX 12 games are capped at 60 FPS.")
+                HelpItem("Graphics layer", "Play picks it for you. If a game crashes or looks wrong, turn on D3DMetal 3.0 (compatibility) in the bottle's options.")
                 HelpItem("Privacy", "When WYNIX checks for updates it sends a random install ID and the app version. Nothing else: no name, no email, no games list. It only lets us count how many people use WYNIX.")
                 HelpItem("Something not working?", "Open the bottle and press Something Not Working. It closes everything in that bottle and restarts it. Games with kernel anti-cheat (Valorant, Fortnite, many shooters) won't run.")
             }
