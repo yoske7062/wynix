@@ -294,7 +294,7 @@ struct SettingsView: View {
                 .help("Steam starts hidden so Play only has to hand over the game. It closes by itself if you don't start a game within 5 minutes, or when WYNIX quits. Skipped on low battery or Low Power Mode.")
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
-            Link("Support WYNIX (optional donation)", destination: URL(string: "https://wynix.vercel.app/#donate")!)
+            Link("Support WYNIX on Ko-fi ☕ (optional, nothing is locked)", destination: URL(string: "https://ko-fi.com/wynix")!)
             Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.vercel.app/legal.html")!)
 
             Section("Help") {
