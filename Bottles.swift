@@ -1079,7 +1079,8 @@ final class BottleStore: ObservableObject {
 
     /// MetalFX factor that turns a 1600-wide image into the main display's width (1.0-2.0).
     static var boostFactor: Double {
-        min(2.0, max(1.0, Double(CGDisplayPixelsWide(CGMainDisplayID())) / boostRenderWidth))
+        // Output never above 1080p width (owner rule: upscaling to 2K costs more than it gives).
+        min(2.0, max(1.0, min(1920, Double(CGDisplayPixelsWide(CGMainDisplayID()))) / boostRenderWidth))
     }
 
     /// Writes C:/steamy/dxmt.conf: a steady 60 FPS cap always (cooler Mac), plus the MetalFX
