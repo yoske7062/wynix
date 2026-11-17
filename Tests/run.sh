@@ -177,6 +177,12 @@ GAMES_EXTRA="$PREFIX_ROOT/drive_c/Gone/steamapps"
 GAMES_EXTRA="/Volumes/WynixNoSuchDrive/steamapps"
 games_drive_missing || fail "a missing external library must say the games drive is unplugged"
 
+# Pre-warm is gated by its Settings toggle, power state, and closes with the app.
+/usr/bin/grep -q 'guard Prewarm.enabled, state == .ready' "$ROOT/MacSteamSetupApp.swift" || fail "prewarm call must be gated by the toggle"
+/usr/bin/grep -q 'Prewarm.key) private var prewarm = true' "$ROOT/Home.swift" || fail "Settings needs the WynixPrewarm toggle, default on"
+/usr/bin/grep -q 'isLowPowerModeEnabled' "$ROOT/MacSteamSetupApp.swift" || fail "prewarm must skip Low Power Mode"
+/usr/bin/grep -q 'Prewarm.stopIfStarted(wait: true)' "$ROOT/MacSteamSetupApp.swift" || fail "quit must close a pre-warmed Steam"
+
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"
 bash "$ROOT/Tests/localization.sh"

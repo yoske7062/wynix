@@ -225,4 +225,22 @@ assert_contains "$output" "$(ui_text steam_window_foregrounded)"
 wait "$background_steam_pid" 2>/dev/null || true
 wait "$background_ui_pid" 2>/dev/null || true
 
+# Pre-warm: a no-op when the bottle's Wine is already up; otherwise starts silently and leaves a
+# marker that prewarm-stop (quit / hidden 5 min) clears; a marker from the user's own Steam is never closed.
+prewarm_mark="$HOME/Library/Caches/MacSteamSetup/steam-prewarm"
+rm -f "$prewarm_mark"
+/bin/bash -c 'exec -a "$1" /bin/sleep 30' _ "$wrapper/Contents/MacOS/Sikarugir" &
+warm_pid=$!
+/bin/sleep 0.1
+output="$(PREWARM_SECONDS=5 bash "$SCRIPT" prewarm)"
+[[ -z "$output" && ! -e "$prewarm_mark" ]] || { echo 'FAIL: prewarm must do nothing when Wine is already up' >&2; exit 1; }
+/bin/kill "$warm_pid" 2>/dev/null || true
+wait "$warm_pid" 2>/dev/null || true
+PREWARM_SECONDS=5 bash "$SCRIPT" prewarm
+[[ -f "$prewarm_mark" ]] || { echo 'FAIL: prewarm did not leave its marker' >&2; exit 1; }
+/usr/bin/grep -q -- '-silent' <(/usr/bin/plutil -extract 'Program Flags' raw "$wrapper/Contents/Info.plist") \
+  || { echo 'FAIL: prewarm must start Steam with -silent' >&2; exit 1; }
+bash "$SCRIPT" prewarm-stop
+[[ ! -e "$prewarm_mark" ]] || { echo 'FAIL: prewarm-stop left the marker' >&2; exit 1; }
+
 printf 'PASS: setup protocol integration tests\n'

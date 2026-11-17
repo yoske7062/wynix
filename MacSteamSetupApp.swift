@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import IOKit.ps
 import SwiftUI
 
 enum L10n {
@@ -86,6 +87,16 @@ final class InstallerModel: ObservableObject {
         statusTimer = Timer.publish(every: 10, on: .main, in: .common)  // each check spawns bash + ps + lsof; keep it light
             .autoconnect()
             .sink { [weak self] _ in self?.refreshRuntimeStatus() }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.prewarmIfWanted() }
+        }
+    }
+
+    /// Window opened or activated, Steam installed (state .ready) and idle: start Steam silently.
+    func prewarmIfWanted() {
+        guard Prewarm.enabled, state == .ready, !operationInProgress, !isSteamRunning,
+              runtimeProcess == nil, Prewarm.powerAllows else { return }
+        Prewarm.run("prewarm")
     }
 
     func primaryAction() {
@@ -238,6 +249,7 @@ final class InstallerModel: ObservableObject {
                 self?.process = nil
                 self?.operationInProgress = false
                 self?.runtimeStatusTitle = nil
+                if mode == "check" { self?.prewarmIfWanted() }
                 if mode == "list-games" {
                     if finished.terminationStatus == 0, let loadedGames = self?.pendingGames {
                         self?.games = loadedGames
@@ -285,7 +297,7 @@ final class InstallerModel: ObservableObject {
         }
     }
 
-    static func taskEnvironment() -> [String: String] {
+    nonisolated static func taskEnvironment() -> [String: String] {
         let inherited = ProcessInfo.processInfo.environment
         return [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
@@ -1052,9 +1064,64 @@ struct ManagementRow: View {
     }
 }
 
+/// Starts Steam silently when WYNIX opens so Play only hands over the game (setup.sh `prewarm`),
+/// and closes that Steam again if no game starts or WYNIX quits or stays hidden (`prewarm-stop`).
+enum Prewarm {
+    static let key = "WynixPrewarm"
+    static let hiddenLimit: TimeInterval = 300
+    nonisolated(unsafe) private static var hiddenTask: DispatchWorkItem?
+
+    static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
+    /// Battery under 20% (unplugged) or Low Power Mode: stay quiet.
+    static var powerAllows: Bool {
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return false }
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return true }
+        for source in list {
+            guard let d = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                  d[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue,
+                  let pct = d[kIOPSCurrentCapacityKey] as? Int else { continue }
+            if pct < 20 { return false }
+        }
+        return true
+    }
+
+    /// `wait` blocks until the script ends (quit path); otherwise it runs detached.
+    static func run(_ mode: String, wait: Bool = false) {
+        guard let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { return }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        task.arguments = [script, mode]
+        task.environment = InstallerModel.taskEnvironment()
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return }
+        if wait { task.waitUntilExit() }
+    }
+
+    static func stopIfStarted(wait: Bool) {
+        let marker = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/MacSteamSetup/steam-prewarm").path
+        if FileManager.default.fileExists(atPath: marker) { run("prewarm-stop", wait: wait) }
+    }
+
+    static func appHidden() {
+        hiddenTask?.cancel()
+        let item = DispatchWorkItem { stopIfStarted(wait: false) }
+        hiddenTask = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + hiddenLimit, execute: item)
+    }
+
+    static func appUnhidden() { hiddenTask?.cancel(); hiddenTask = nil }
+}
+
 /// On quit, offer to close Steam and Windows programs so nothing keeps running in the background.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in Prewarm.appHidden() }
+        nc.addObserver(forName: NSApplication.didUnhideNotification, object: nil, queue: .main) { _ in Prewarm.appUnhidden() }
         MainActor.assumeIsolated { GameModeBooster.shared.restoreAfterCrash() }
     }
 
@@ -1063,6 +1130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Prewarm.stopIfStarted(wait: true)  // only a Steam that pre-warm started; the prompt below covers the rest
         guard BottleStore.windowsProgramsRunning else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Close Steam and Windows apps too?"

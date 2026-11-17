@@ -270,6 +270,7 @@ struct SettingsView: View {
     @AppStorage(Tutorial.doneKey) private var tutorialDone = false
     @AppStorage("gameMode") private var gameMode = true
     @AppStorage("cap60Hz") private var cap60Hz = false
+    @AppStorage(Prewarm.key) private var prewarm = true
     @AppStorage("bottleStorage") private var storage = BottleStore.externalVolumes.first?.path ?? "local"
 
     var body: some View {
@@ -289,6 +290,8 @@ struct SettingsView: View {
                 .help("Browsers, Discord, Spotify and similar apps get background priority during a game, so the game gets more CPU. Restored when the game ends.")
             Toggle("Limit display to 60 Hz while playing", isOn: $cap60Hz)
                 .help("Keeps fanless Macs cooler, also for DirectX 12 games. The display goes back to normal when the game ends or WYNIX quits.")
+            Toggle("Start Steam in the background when WYNIX opens (games open faster)", isOn: $prewarm)
+                .help("Steam starts hidden so Play only has to hand over the game. It closes by itself if you don't start a game within 5 minutes, or when WYNIX quits. Skipped on low battery or Low Power Mode.")
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
             Link("Support WYNIX (optional donation)", destination: URL(string: "https://wynix.vercel.app/#donate")!)

@@ -191,7 +191,7 @@ steam_remove_autorun_after_start() {
 }
 
 wrapper_wineserver_running() {
-  /bin/ps -axo command= | /usr/bin/grep -Fq "$WRAPPER/Contents/SharedSupport/wine/lib/wine/../../bin/wineserver"
+  /usr/bin/pgrep -qf -- "$WRAPPER/Contents/SharedSupport/wine/lib/wine/\.\./\.\./bin/wineserver"  # pgrep never matches itself
 }
 
 # Turns Steam's auto-start off without racing Wine: while the bottle's wineserver runs it owns
@@ -208,6 +208,9 @@ steam_autorun_off() {
 # Remembers which renderer a cold Steam start used and when (mtime), so Play can tell a stale or
 # wrong-renderer Steam from a booting one. Call right after configure_wrapper_plist on a cold start.
 renderer_mark="$APP_CACHE/steam-renderer"
+# Present only while a Steam started by pre-warm (not by the user or Play) is waiting for a game.
+prewarm_mark="$APP_CACHE/steam-prewarm"
+PREWARM_SECONDS="${PREWARM_SECONDS:-300}"
 record_renderer() {
   /bin/mkdir -p "$APP_CACHE"
   if [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]]; then
@@ -218,7 +221,7 @@ record_renderer() {
 }
 
 stop_wrapper() {
-  /bin/rm -f "$renderer_mark"
+  /bin/rm -f "$renderer_mark" "$prewarm_mark"
   steam_client_is_running && steam_remove_autorun_live
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
   terminate_orphaned_steam_processes || return 1
@@ -415,6 +418,7 @@ if [[ "${1:-setup}" == "launch" ]]; then
   [[ -f "$OWNER_MARKER" && -x "$WRAPPER/Contents/MacOS/Sikarugir" \
       && -f "$STEAM_EXE" && -f "$STEAM_CLIENT_DLL" && -f "$PLIST" ]] \
     || fail_key installed_steam_not_found
+  /bin/rm -f "$prewarm_mark"  # the user opened Steam: it is theirs now, pre-warm must not close it
   configure_wrapper_plist "$PLIST"
   if steam_runtime_is_running; then
     if steam_ui_is_running; then
@@ -434,6 +438,45 @@ if [[ "${1:-setup}" == "launch" ]]; then
   steam_remove_autorun_after_start
   printf '@@STATE|running\n'
   message_key steam_start_requested
+  exit 0
+fi
+
+# Starts Steam silently in the background so a later Play only hands over the applaunch.
+# Does nothing when Steam or any Wine of the bottle is already up, or Steam isn't installed.
+if [[ "${1:-setup}" == "prewarm" ]]; then
+  [[ -f "$OWNER_MARKER" && -x "$WRAPPER/Contents/MacOS/Sikarugir" \
+      && -f "$STEAM_EXE" && -f "$STEAM_CLIENT_DLL" && -f "$PLIST" ]] || exit 0
+  if steam_runtime_is_running || wrapper_wineserver_running; then exit 0; fi
+  configure_wrapper_plist "$PLIST"
+  plist_set "$PLIST" 'Program Flags' string '-silent -nobootstrapupdate -skipinitialbootstrap'
+  steam_autorun_off
+  record_renderer
+  /bin/mkdir -p "$APP_CACHE"
+  : > "$prewarm_mark"
+  open_wrapper
+  steam_remove_autorun_after_start
+  # Watcher: ends when Play/Open takes the Steam over (marker gone) or Steam exits; closes it after
+  # PREWARM_SECONDS unless a game is running.
+  (
+    waited=0
+    while (( waited < PREWARM_SECONDS )); do
+      /bin/sleep 5; waited=$(( waited + 5 ))
+      configure_wrapper_plist "$PLIST"  # drop -silent again so Open/Finder starts show the window
+      [[ -f "$prewarm_mark" ]] || exit 0
+      steam_runtime_is_running || { /bin/rm -f "$prewarm_mark"; exit 0; }
+    done
+    game_may_be_running || stop_wrapper
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  exit 0
+fi
+
+# WYNIX quit or stayed hidden: close the Steam that pre-warm started, never one the user opened
+# (marker gone) and never while a game runs.
+if [[ "${1:-setup}" == "prewarm-stop" ]]; then
+  [[ -f "$prewarm_mark" ]] || exit 0
+  game_may_be_running && exit 0
+  stop_wrapper || true
   exit 0
 fi
 
@@ -502,7 +545,7 @@ if [[ "${1:-setup}" == "play" ]]; then
   wanted_renderer="${3:-}"
   # No Wine at all: a marker left by a crash or force-quit is stale.
   if ! steam_is_running && ! steam_client_is_running && ! wrapper_wineserver_running; then
-    /bin/rm -f "$renderer_mark"
+    /bin/rm -f "$renderer_mark" "$prewarm_mark"
   fi
   cold_start=1
   if steam_client_is_running; then
@@ -532,6 +575,11 @@ if [[ "${1:-setup}" == "play" ]]; then
     record_renderer
   fi
   steam_was_running=$(( 1 - cold_start ))
+  # A pre-warmed Steam is ours to close after the game, like a cold start from Play.
+  if (( cold_start == 0 )) && [[ -f "$prewarm_mark" ]]; then
+    /bin/rm -f "$prewarm_mark"
+    steam_was_running=0
+  fi
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-installer "$play_bat" >/dev/null 2>&1 &
   steam_remove_autorun_after_start
   if (( steam_was_running == 0 )); then
