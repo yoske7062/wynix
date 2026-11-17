@@ -4,3 +4,4 @@ build/
 .claude/
 site/.vercel/
 .env*
+.raw-test-backup/
