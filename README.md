@@ -60,19 +60,19 @@ Steam's initial network check may take about a minute on some connections. An IP
 
 ## Build and verify
 
-Build the app from source:
+Run the complete launch validation (build, regression tests, macOS minimum-version check, component checks, API checks, and the tracked DMG checksum):
+
+```sh
+bash scripts/check-all.sh
+```
+
+To only build the app:
 
 ```sh
 ./build.command
 ```
 
-Run the test suite:
-
-```sh
-bash Tests/run.sh
-```
-
-Tests cover installation-state detection, monotonically increasing progress, Steam installation completion, wrapper configuration, duplicate-process detection, cache repair, full shutdown, manifest parsing, and shortcut creation and signing.
+The regression suite can also be run on its own with `bash Tests/run.sh`. It covers installation-state detection, monotonically increasing progress, Steam installation completion, wrapper configuration, duplicate-process detection, cache repair, full shutdown, manifest parsing, and shortcut creation and signing.
 
 The following checks were completed on macOS 26.6.2 with an M4 Pro and Steam build `1785799196`:
 

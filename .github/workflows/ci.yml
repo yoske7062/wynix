@@ -16,11 +16,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Run regression tests
-        run: bash Tests/run.sh
-
-      - name: Build app
-        run: ./build.command
+      - name: Run launch validation
+        run: bash scripts/check-all.sh
 
       - name: Verify app
         run: |
