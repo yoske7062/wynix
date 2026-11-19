@@ -718,8 +718,9 @@ static void hudUpdate(void) {
     if (now - lastSlowNs > 500000000ull) {  // system readings twice a second
         lastSlowNs = now;
         cpu = cpuPercent(); gpu = gpuPercent(); mem = memoryUsedGB(&memTotal);
-        double t = chipTemperature(); temp = t > 0 ? t : -1;
     }
+    double t = chipTemperature();  // every tick (10x a second): a sensor read is microseconds
+    temp = t > 0 ? t : -1;
     CGFloat size = 11;
     NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightMedium];
     NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold];
