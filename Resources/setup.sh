@@ -89,7 +89,7 @@ with_timeout() { /usr/bin/perl -e 'alarm shift; exec @ARGV or exit 127' "$@"; }
 process_belongs_to_wrapper() {
   local pid="$1"
   local contents_path
-  contents_path="$(cd "$WRAPPER/Contents" && pwd -P)/"
+  contents_path="$(cd "$WRAPPER/Contents" && pwd -P)/" || return 1  # missing wrapper must not match "/"
   with_timeout 5 /usr/sbin/lsof -a -p "$pid" -d cwd,txt -Fn 2>/dev/null \
     | /usr/bin/grep -Fq "n$contents_path"
 }
@@ -106,7 +106,7 @@ wrapper_has_named_process() {
   local process_name
   local contents_path
   local lsof_args=(-a -d cwd -Fn)
-  contents_path="$(cd "$WRAPPER/Contents" && pwd -P)/"
+  contents_path="$(cd "$WRAPPER/Contents" && pwd -P)/" || return 1  # missing wrapper must not match "/"
   for process_name in "$@"; do
     lsof_args+=(-c "$process_name")
   done
@@ -243,7 +243,7 @@ stop_wrapper() {
 STEAM_GRACE_SECONDS="${STEAM_GRACE_SECONDS:-5}"
 
 any_steam_game_running() {
-  /usr/bin/pgrep -if 'steamapps.common.' >/dev/null  # pgrep never matches itself
+  /usr/bin/pgrep -if '^[a-z]:.*steamapps.common.' >/dev/null  # Windows-path games only (not native Mac Steam games); pgrep never matches itself
 }
 
 # True when any Wine process of Windows-path style is not one of Steam's own or Wine's services:
@@ -263,7 +263,7 @@ stop_steam_after_game() {
   local install_dir="$1"
   (
     for _ in {1..600}; do
-      /bin/ps -axo command= | /usr/bin/grep -Fq "common\\${install_dir}" && break
+      [[ "$(/bin/ps -axo command=)" == *"common\\${install_dir}"* ]] && break  # no pipe: grep -q + pipefail gave false negatives
       /bin/sleep 1
     done
     idle=0
@@ -465,7 +465,7 @@ if [[ "${1:-setup}" == "prewarm" ]]; then
       [[ -f "$prewarm_mark" ]] || exit 0
       steam_runtime_is_running || { /bin/rm -f "$prewarm_mark"; exit 0; }
     done
-    game_may_be_running || stop_wrapper
+    [[ -f "$prewarm_mark" ]] && ! game_may_be_running && stop_wrapper  # Play may have taken over at the last second
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   exit 0
@@ -705,13 +705,14 @@ if [[ "${1:-setup}" == "create-bottle" ]]; then
   for _ in {1..600}; do
     /bin/kill -0 "$prefix_pid" 2>/dev/null || break
     if [[ -f "$bottle/Contents/SharedSupport/prefix/system.reg" && -d "$bottle/Contents/drive_c/windows" ]] \
-      && ! /bin/ps -axo command= | /usr/bin/grep -Fq "$bottle/Contents/SharedSupport/wine"; then
+      && ! /bin/ps -axo command= | /usr/bin/awk -v p="$bottle/Contents/SharedSupport/wine" 'index($0, p) && !/awk/ { f = 1 } END { exit !f }'; then  # awk reads all input (no SIGPIPE) and skips its own argv
       /bin/sleep 2
       /bin/kill -TERM "$prefix_pid" 2>/dev/null || true
       break
     fi
     /bin/sleep 1
   done
+  /bin/kill -TERM "$prefix_pid" 2>/dev/null || true  # still open after 10 min: don't wait on it forever
   wait "$prefix_pid" 2>/dev/null || true
   [[ -d "$bottle/Contents/drive_c/windows" ]] || fail "The Windows environment could not be created."
   "$bottle/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
@@ -823,7 +824,7 @@ LAUNCHER="$WRAPPER/Contents/MacOS/Sikarugir"
 phase "windows"
 message_key preparing_windows
 if [[ ! -d "$WRAPPER/Contents/drive_c/windows" ]]; then
-  "$LAUNCHER" WSS-wineprefixcreate
+  with_timeout 900 "$LAUNCHER" WSS-wineprefixcreate || true  # the launcher can stay open after creating the prefix
 fi
 [[ -d "$WRAPPER/Contents/drive_c/Program Files (x86)" ]] || fail_key windows_environment_failed
 

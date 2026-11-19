@@ -89,9 +89,13 @@ final class InstallerModel: ObservableObject {
     }
 
     /// Window opened or activated, Steam installed (state .ready) and idle: start Steam silently.
+    /// Once per WYNIX launch: re-firing on every activation restarted a Steam the user had just
+    /// quit, and two quick activations could start two pre-warms.
+    private var prewarmed = false
     func prewarmIfWanted() {
-        guard Prewarm.enabled, state == .ready, !operationInProgress, !isSteamRunning,
+        guard !prewarmed, Prewarm.enabled, state == .ready, !operationInProgress, !isSteamRunning,
               runtimeProcess == nil, Prewarm.powerAllows else { return }
+        prewarmed = true
         Prewarm.run("prewarm")
     }
 
@@ -543,7 +547,7 @@ struct ContentView: View {
             if state == .ready { store.reload() }
             if state == .ready, selection == .games {
                 model.loadGames()
-            } else if state == .notInstalled || state == .partial || state == .failed, selectedBottleID == nil {
+            } else if state == .notInstalled || state == .partial || state == .failed, selectedBottleID == nil, tutorialDone {  // never yank the tour
                 selection = .management
             }
         }

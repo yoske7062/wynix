@@ -472,6 +472,7 @@ enum SteamGovernor {
     nonisolated private static let work = DispatchQueue(label: "wynix.steamgovernor", qos: .utility)
     nonisolated(unsafe) private static var lowered: Set<pid_t> = []
     nonisolated(unsafe) private static var boosted: Set<pid_t> = []
+    nonisolated(unsafe) private static var wasGameRunning = false
     nonisolated(unsafe) private static var timer: DispatchSourceTimer?
 
     static func start() {
@@ -504,6 +505,10 @@ enum SteamGovernor {
         // Steam starts the game, so a game would inherit Steam's background band: lift it, once per pid.
         for pid in games where !boosted.contains(pid) { if taskpolicy("-B", pid) { boosted.insert(pid) } }
         boosted.formIntersection(games)
+        if wasGameRunning && !gameRunning {  // game over (Steam stays open): give Chrome & co. their CPU back
+            DispatchQueue.main.async { MainActor.assumeIsolated { GameModeBooster.shared.release() } }
+        }
+        wasGameRunning = gameRunning
         let want = Set(client + (gameRunning ? helpers : []))
         for pid in want.subtracting(lowered) where taskpolicy("-b", pid) { lowered.insert(pid) }
         for pid in lowered.subtracting(want) {

@@ -38,6 +38,7 @@ final class Updater: ObservableObject {
     }
 
     func start() {
+        guard currentBuild > 0 else { return }  // unreadable build number: every release would look newer
         check()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in

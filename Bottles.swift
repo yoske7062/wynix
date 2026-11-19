@@ -620,11 +620,35 @@ final class BottleStore: ObservableObject {
 
     func install(_ file: URL, in bottle: Bottle) {
         guarded(file, in: bottle) { [weak self] in
-            self?.activity = "Installing \(file.lastPathComponent) into \(bottle.name)…"
-            self?.launcher(bottle, ["WSS-installer", file.path]) { status, output in
-                self?.activity = nil
-                if status != 0 { self?.alertMessage = "\(file.lastPathComponent) did not finish installing:\n\(output.suffix(400))" }
-                self?.scanPrograms(bottle)
+            guard let self else { return }
+            self.activity = "Installing \(file.lastPathComponent) into \(bottle.name)…"
+            // Store installers (Epic, GOG, EA, Ubisoft, Battle.net) start their launcher when done, so the
+            // wrapper never exits and the completion below never fires: "Installing…" stayed up forever
+            // and nothing appeared until WYNIX restarted. Watch for the new program instead.
+            let before = Set(Self.findPrograms(in: bottle).map(\.name))
+            var finished = false
+            func watch() {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { [weak self] in
+                    let found = Set(Self.findPrograms(in: bottle).map(\.name))
+                    DispatchQueue.main.async {
+                        guard let self, !finished else { return }
+                        if !found.subtracting(before).isEmpty {
+                            finished = true
+                            self.activity = nil
+                            self.scanPrograms(bottle)
+                        } else { watch() }
+                    }
+                }
+            }
+            watch()
+            self.launcher(bottle, ["WSS-installer", file.path]) { [weak self] status, output in
+                guard let self else { return }
+                if !finished {
+                    finished = true
+                    self.activity = nil
+                    if status != 0 { self.alertMessage = "\(file.lastPathComponent) did not finish installing:\n\(output.suffix(400))" }
+                }
+                self.scanPrograms(bottle)
             }
         }
     }
@@ -1251,8 +1275,14 @@ final class BottleStore: ObservableObject {
         guard !wantsD3DMetal3(bottle) else { return }
         guard D3DMetalSwap.stagedAvailable else { downloadD3DMetal4(then: bottle); return }
         let is4 = d3dmetalVersion(bottle)?.hasPrefix("4") == true
-        if !is4 { setD3DMetal4(bottle, on: true, quiet: true) }
-        else { setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+        if is4 { setEnvironment(bottle, "D3DM_MAX_FPS", "60"); return }
+        // The swap copies the whole framework: off the main thread, or Play beachballs.
+        let renderer = rendererDir(bottle)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard !Self.windowsProgramsRunning,
+                  (try? D3DMetalSwap.swap(renderer: renderer, staged: D3DMetalSwap.staged, to4: true)) != nil else { return }
+            DispatchQueue.main.async { self?.setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+        }
     }
 
     private var d3dmetalDownloadTried = false
