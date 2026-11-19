@@ -55,4 +55,4 @@ jobs:
             "$ARCHIVE" "$ARCHIVE.sha256" \
             --prerelease \
             --title "WYNIX ${GITHUB_REF_NAME}" \
-            --notes-file docs/BETA_RELEASE_NOTES.md
+            --generate-notes

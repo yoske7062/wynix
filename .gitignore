@@ -6,3 +6,5 @@ site/.vercel/
 .env*
 .raw-test-backup/
 FABLE_PROMPT.md
+docs/
+marketing/

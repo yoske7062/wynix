@@ -6,11 +6,7 @@
 
 Play your Windows Steam games on an Apple Silicon Mac. Free, no VM, no CrossOver sub. You hit Play and it just goes.
 
-[Download](https://wynix.app/) · [Report a bug or a game](https://github.com/yoske7062/wynix/issues/new/choose) · [Chat](https://github.com/yoske7062/wynix/discussions)
-
-<p align="center">
-  <img src="Assets/ManagementScreenshot.png" width="900" alt="WYNIX game library">
-</p>
+[Download](https://wynix.app/) · [Report a bug or a game](https://github.com/yoske7062/wynix/issues/new/choose)
 
 ## Get it running
 
