@@ -1108,23 +1108,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        Prewarm.stopIfStarted(wait: true)  // only a Steam that pre-warm started; the prompt below covers the rest
-        guard BottleStore.windowsProgramsRunning else { return .terminateNow }
-        let alert = NSAlert()
-        alert.messageText = "Close Steam and Windows apps too?"
-        alert.informativeText = "Steam or other Windows programs are still running in the background. Close everything, or keep them running after WYNIX quits?"
-        alert.addButton(withTitle: "Close Everything")
-        alert.addButton(withTitle: "Keep Running")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            BottleStore.closeAllWindowsPrograms()
-            return .terminateNow
-        case .alertSecondButtonReturn:
-            return .terminateNow
-        default:
-            return .terminateCancel
+        var closeAll = false
+        if BottleStore.windowsProgramsRunning {
+            let alert = NSAlert()
+            alert.messageText = "Close Steam and Windows apps too?"
+            alert.informativeText = "Steam or other Windows programs are still running in the background. Close everything, or keep them running after WYNIX quits?"
+            alert.addButton(withTitle: "Close Everything")
+            alert.addButton(withTitle: "Keep Running")
+            alert.addButton(withTitle: "Cancel")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: closeAll = true
+            case .alertSecondButtonReturn: break
+            default: return .terminateCancel
+            }
         }
+        // Stopping Wine can take many seconds; doing it on the main thread showed the beachball.
+        // Hide the windows now and finish the cleanup in the background.
+        NSApp.windows.forEach { $0.orderOut(nil) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            Prewarm.stopIfStarted(wait: true)  // only a Steam that pre-warm started
+            if closeAll { BottleStore.closeAllWindowsPrograms() }
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

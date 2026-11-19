@@ -807,11 +807,14 @@ final class BottleStore: ObservableObject {
         if bottle.isSteam && plistDictionary(bottle)["WynixUpscaleDX12"] == nil && !boost(bottle) {
             setUpscaleDX12(bottle, true, notify: false)
         }
+        var macDriver = ["CaptureDisplaysForFullscreen": "\"y\""]  // fullscreen games bypass the window compositor
+        // Point resolution is the biggest FPS win on Retina Macs, but it was overwriting the user's
+        // "High Resolution Mode" choice on every Optimize (Steam looked pixelated). Only set it once.
+        if RegistryFile.section(bottle.prefix.appendingPathComponent("user.reg"), "Software\\Wine\\Mac Driver")["RetinaMode"] == nil {
+            macDriver["RetinaMode"] = "\"n\""
+        }
         importRegistry(bottle, [
-            Self.macDriverKey: [
-                "RetinaMode": "\"n\"",                     // render at point resolution: biggest FPS win on Retina Macs
-                "CaptureDisplaysForFullscreen": "\"y\""    // fullscreen games bypass the window compositor
-            ],
+            Self.macDriverKey: macDriver,
             // Without this a game that switches the display mode leaves Wine's window at the old size.
             "HKEY_CURRENT_USER\\Software\\Wine\\X11 Driver": ["EmulateModeset": "\"y\""],
             "HKEY_CURRENT_USER\\Software\\Wine\\WineDbg": ["ShowCrashDialog": "dword:00000000"],
