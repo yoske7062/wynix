@@ -51,6 +51,8 @@
 #include <os/lock.h>
 #include <time.h>
 #include <stdatomic.h>
+#include <pthread.h>
+#include <pthread/qos.h>
 #include <sys/sysctl.h>
 #include <mach/mach.h>
 #import <AppKit/AppKit.h>
@@ -65,6 +67,7 @@ static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPres
 static char kStateKey, kInfoKey;
 static BOOL gUpscale;
 static void hudTick(CAMetalLayer *layer);
+static void gameBoostTick(CAMetalLayer *layer);
 
 // ---- Chip temperature ----
 // Private IOHIDEventSystem API (same one Stats/iStat use; works under Rosetta). Hottest "tdie" sensor
@@ -349,6 +352,7 @@ static id<CAMetalDrawable> passthrough(CAMetalLayer *self, SEL _cmd, WynixLayerI
 
 static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
     hudTick(self);
+    gameBoostTick(self);
     if (!gUpscale) {  // timing only: install the present hooks on the first Wine frame, never proxy
         if (isWineLayer(self) && self.device) {
             static dispatch_once_t once;
@@ -769,6 +773,23 @@ static void hudInit(void) {
     dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), NSEC_PER_SEC / 10, NSEC_PER_SEC / 50);
     dispatch_source_set_event_handler(timer, ^{ @autoreleasepool { @try { hudUpdate(); } @catch (id e) {} } });
     dispatch_resume(timer);
+}
+
+// ---- Game priority ----
+// No admin rights needed: the thread that hands frames to the screen gets macOS's highest QoS
+// (user-interactive: performance cores first, scheduled ahead of everything else) and the game
+// process is marked as the foreground app. Never for Steam's own processes.
+static void gameBoostTick(CAMetalLayer *layer) {
+    static _Thread_local BOOL threadDone;
+    if (threadDone || gHudSkip || !isWineView(layer)) return;
+    threadDone = YES;
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        task_category_policy_data_t p = { TASK_FOREGROUND_APPLICATION };
+        task_policy_set(mach_task_self(), TASK_CATEGORY_POLICY, (task_policy_t)&p, TASK_CATEGORY_POLICY_COUNT);
+        LOG("game priority: render thread user-interactive, task foreground");
+    });
 }
 
 __attribute__((constructor)) static void wynixUpscaleInit(void) {

@@ -708,6 +708,10 @@ final class BottleStore: ObservableObject {
             return
         }
         removeAppleHUD(bottle)
+        // macOS Game Mode: top CPU/GPU priority and fewer background tasks while the game is fullscreen.
+        if (plistDictionary(bottle)["LSSupportsGameMode"] as? Bool) != true {
+            setPlist(bottle, ["LSSupportsGameMode": true, "LSApplicationCategoryType": "public.app-category.games"])
+        }
         if needsDylib(bottle) {  // a missing injected dylib would abort Wine
             if !ensureUpscaler(bottle) {  // only for this launch; the setting stays, a later restore re-adds it
                 setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
@@ -1174,8 +1178,9 @@ final class BottleStore: ObservableObject {
     func hudFlag(_ bottle: Bottle) -> URL { bottle.driveC.appendingPathComponent("steamy/hud") }
     func hudOn(_ bottle: Bottle) -> Bool { FileManager.default.fileExists(atPath: hudFlag(bottle).path) }
 
-    /// The dylib is injected when any of its jobs is on: upscaling, benchmark recording or the HUD.
-    func needsDylib(_ bottle: Bottle) -> Bool { upscaleDX12(bottle) || benchmarking(bottle) || hudOn(bottle) }
+    /// The dylib is always injected when the bottle can take it: besides upscaling, benchmark and the
+    /// HUD it gives every game top priority (render thread QoS, foreground task).
+    func needsDylib(_ bottle: Bottle) -> Bool { upscalerURL(bottle) != nil }
 
     func setHUD(_ bottle: Bottle, _ on: Bool) {
         let fm = FileManager.default
@@ -1191,7 +1196,6 @@ final class BottleStore: ObservableObject {
             if !wasInjected { noteRestartIfRunning() }  // already injected: it appears in the running game
         } else {
             try? fm.removeItem(at: hudFlag(bottle))
-            if !needsDylib(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
         }
         removeAppleHUD(bottle)
         objectWillChange.send()  // the toggle reads a file, not a published property
@@ -1370,7 +1374,6 @@ final class BottleStore: ObservableObject {
         }
         setEnvironment(bottle, "WYNIX_BENCH_FILE", on ? benchDir(bottle).path + "/" : nil)
         if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) }
-        else if !upscaleDX12(bottle) && !hudOn(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
         setPlist(bottle, ["WynixBenchmark": on ? 1 : 0])
         noteRestartIfRunning()
     }
@@ -1404,7 +1407,7 @@ final class BottleStore: ObservableObject {
                 : "Boost (MetalFX upscaling) could not be installed into \(bottle.name)."
             return
         }
-        if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) } else if !hudOn(bottle) && !benchmarking(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
+        if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) }
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", nil)  // retired; cleans old bottles
         setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])  // 0 = explicit off, missing = default on (Steam)
