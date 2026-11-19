@@ -532,11 +532,13 @@ enum SteamGovernor {
     nonisolated(unsafe) private static var lastHelper: (pid: pid_t, since: Date)?
     nonisolated(unsafe) private static var lastClient: (pid: pid_t, since: Date)?
     nonisolated private static func quitSteamIfWindowClosed(mainHelper: pid_t?, steamRunning: Bool, gameRunning: Bool) {
-        defer {
-            if let h = mainHelper { if lastHelper?.pid != h { lastHelper = (h, Date()) } } else { lastHelper = nil }
+        defer {  // keep the last UI across a gap, forget it only when Steam itself is gone
+            if let h = mainHelper { if lastHelper?.pid != h { lastHelper = (h, Date()) } } else if !steamRunning { lastHelper = nil }
         }
-        guard steamRunning, !gameRunning, let last = lastHelper, mainHelper != last.pid,
-              Date().timeIntervalSince(last.since) > 30,
+        // Act only when a NEW UI process shows up (what the X causes), never on a one-tick gap,
+        // and never while WYNIX is starting Steam or a game.
+        guard steamRunning, !gameRunning, let last = lastHelper, let now = mainHelper, now != last.pid,
+              Date().timeIntervalSince(last.since) > 30, !launchInProgress(),
               let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { return }
         let stop = Process()
         stop.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -545,6 +547,15 @@ enum SteamGovernor {
         stop.standardError = FileHandle.nullDevice
         try? stop.run()
         stop.waitUntilExit()
+    }
+
+    nonisolated private static func launchInProgress() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "setup\\.sh (play|launch|prewarm)"]
+        p.standardOutput = FileHandle.nullDevice
+        try? p.run(); p.waitUntilExit()
+        return p.terminationStatus == 0
     }
 
     nonisolated private static func taskpolicy(_ flag: String, _ pid: pid_t) -> Bool {
