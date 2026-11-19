@@ -13,7 +13,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 /usr/bin/strip -x "$APP/Contents/MacOS/MacSteamSetup"
 # DirectX 12 Boost: injected into Wine. Universal so arm64 child processes load it too.
 /usr/bin/clang -arch x86_64 -arch arm64 -mmacosx-version-min=14.0 -O2 -fobjc-arc -dynamiclib \
-  -framework Metal -framework MetalFX -framework QuartzCore -framework Foundation -framework CoreText -framework CoreGraphics -framework IOKit \
+  -framework Metal -framework MetalFX -framework QuartzCore -framework Foundation -framework CoreText -framework CoreGraphics -framework IOKit -framework AppKit \
   "$SCRIPT_DIR/Resources/Upscaler/wynix_upscale.m" -o "$APP/Contents/Resources/wynix_upscale.dylib"
 /usr/bin/ditto "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/setup.sh" "$APP/Contents/Resources/setup.sh"

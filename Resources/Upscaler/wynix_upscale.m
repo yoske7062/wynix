@@ -50,6 +50,11 @@
 #include <dlfcn.h>
 #include <os/lock.h>
 #include <time.h>
+#include <stdatomic.h>
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#import <AppKit/AppKit.h>
+#import <IOKit/IOKitLib.h>
 
 static BOOL gLog, gAnyLayer, gLabel;
 static volatile BOOL gDisabled;
@@ -59,7 +64,7 @@ static IMP gOrigWaitDrawable, gOrigSignalDrawable;  // MTL4CommandQueue (Metal 4
 static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
 static BOOL gUpscale;
-static BOOL gTemp;  // WYNIX_HUD_TEMP=1: add the chip temperature to the label (advanced stats)
+static void hudTick(CAMetalLayer *layer);
 
 // ---- Chip temperature ----
 // Private IOHIDEventSystem API (same one Stats/iStat use; works under Rosetta). Hottest "tdie" sensor
@@ -123,7 +128,6 @@ static char *gBenchFile;  // resolved file name, set on the first flush
 @property MTLPixelFormat format;
 @property id<MTLTexture> label;   // pre-rendered "WYNIX Boost" box, same format as the drawable
 @property BOOL labelTried;
-@property CFTimeInterval labelTime;  // when the label was drawn; with WYNIX_HUD_TEMP it is redrawn every 2 s
 @property MTLFXSpatialScalerDescriptor *desc;
 @property id mtl4Scaler;       // id<MTL4FXSpatialScaler>, created lazily on the first Metal 4 frame
 @property id mtl4Residency;    // id<MTLResidencySet> holding the ring textures
@@ -344,6 +348,7 @@ static id<CAMetalDrawable> passthrough(CAMetalLayer *self, SEL _cmd, WynixLayerI
 }
 
 static id<CAMetalDrawable> hookedNextDrawable(CAMetalLayer *self, SEL _cmd) {
+    hudTick(self);
     if (!gUpscale) {  // timing only: install the present hooks on the first Wine frame, never proxy
         if (isWineLayer(self) && self.device) {
             static dispatch_once_t once;
@@ -398,8 +403,6 @@ static id<MTLTexture> makeLabel(WynixLayerState *s, id<MTLDevice> dev) {
     CGFloat fs = MAX(14, round(s.outH / 60.0));
     NSString *text = [NSString stringWithFormat:@"WYNIX Boost  MetalFX %lux%lu -> %lux%lu",
                       (unsigned long)s.inW, (unsigned long)s.inH, (unsigned long)s.outW, (unsigned long)s.outH];
-    double temp = gTemp ? chipTemperature() : 0;
-    if (temp > 0) text = [text stringByAppendingFormat:@"   Mac %.0f°C", temp];
     CTFontRef font = CTFontCreateWithName(CFSTR("Helvetica-Bold"), fs, NULL);
     CFStringRef keys[] = { kCTFontAttributeName, kCTForegroundColorFromContextAttributeName };
     CFTypeRef vals[] = { font, kCFBooleanTrue };
@@ -461,11 +464,7 @@ static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> draw
         [scaler encodeToCommandBuffer:cb];
         if (gLabel) {
             WynixLayerState *st = p.state;
-            CFTimeInterval now = CACurrentMediaTime();
-            if (!st.labelTried || (gTemp && now - st.labelTime > 2)) {
-                st.labelTried = YES; st.labelTime = now;
-                @try { st.label = makeLabel(st, cb.device); } @catch (id e) {}
-            }
+            if (!st.labelTried) { st.labelTried = YES; @try { st.label = makeLabel(st, cb.device); } @catch (id e) {} }
             id<MTLTexture> l = st.label, dst = p.real.texture;
             if (l && dst.pixelFormat == l.pixelFormat && dst.width >= l.width && dst.height >= l.height) {
                 id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
@@ -608,15 +607,177 @@ static void onImageAdded(const struct mach_header *mh, intptr_t slide) {
     }
 }
 
+// ---- WYNIX performance HUD ----
+// A small box in the top-right corner of the game window: FPS (updated 10x a second), CPU, GPU,
+// memory and the Mac's temperature, each with a green/yellow/orange/red dot. Drawn as a layer on
+// top of Wine's Metal view inside the game process, so it works without WYNIX open and in
+// fullscreen. Shown while drive_c/steamy/hud exists in this bottle (WYNIX creates or removes it,
+// so the toggle applies live). Steam's own windows never get it.
+static char *gHudFlag;
+static BOOL gHudSkip;
+static _Atomic uint64_t gHudFrames;
+static __weak CALayer *gHudHost;
+static CALayer *gHudLayer;       // dark rounded box
+static CATextLayer *gHudText;
+
+static BOOL isWineView(CAMetalLayer *layer) {
+    id d = layer.delegate;
+    return d && strstr(class_getName([d class]), "WineMetalView") != NULL;
+}
+
+static void hudTick(CAMetalLayer *layer) {
+    if (!gHudFlag || gHudSkip || !isWineView(layer)) return;
+    atomic_fetch_add_explicit(&gHudFrames, 1, memory_order_relaxed);
+    if (gHudHost != layer) {  // first frame of this window: remember it, attach on the main thread
+        gHudHost = layer;
+        dispatch_async(dispatch_get_main_queue(), ^{ [gHudLayer removeFromSuperlayer]; });
+    }
+}
+
+static double cpuPercent(void) {
+    static uint64_t lastBusy, lastTotal;
+    host_cpu_load_info_data_t info; mach_msg_type_number_t n = HOST_CPU_LOAD_INFO_COUNT;
+    if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, (host_info_t)&info, &n) != KERN_SUCCESS) return -1;
+    uint64_t busy = (uint64_t)info.cpu_ticks[CPU_STATE_USER] + info.cpu_ticks[CPU_STATE_SYSTEM] + info.cpu_ticks[CPU_STATE_NICE];
+    uint64_t total = busy + info.cpu_ticks[CPU_STATE_IDLE];
+    double pct = total > lastTotal ? 100.0 * (busy - lastBusy) / (total - lastTotal) : -1;
+    lastBusy = busy; lastTotal = total;
+    return pct;
+}
+
+static double gpuPercent(void) {
+    io_service_t s = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOAccelerator"));
+    if (!s) return -1;
+    double pct = -1;
+    CFDictionaryRef stats = IORegistryEntryCreateCFProperty(s, CFSTR("PerformanceStatistics"), kCFAllocatorDefault, 0);
+    if (stats) {
+        NSNumber *u = ((__bridge NSDictionary *)stats)[@"Device Utilization %"];
+        if (u) pct = u.doubleValue;
+        CFRelease(stats);
+    }
+    IOObjectRelease(s);
+    return pct;
+}
+
+// Same idea as Activity Monitor's "Memory Used": app memory + wired + compressed.
+static double memoryUsedGB(double *totalGB) {
+    vm_statistics64_data_t vm; mach_msg_type_number_t n = HOST_VM_INFO64_COUNT;
+    uint64_t total = 0; size_t len = sizeof total;
+    sysctlbyname("hw.memsize", &total, &len, NULL, 0);
+    *totalGB = total / 1073741824.0;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vm, &n) != KERN_SUCCESS) return -1;
+    uint64_t used = ((uint64_t)vm.internal_page_count - vm.purgeable_count + vm.wire_count + vm.compressor_page_count) * vm_kernel_page_size;
+    return used / 1073741824.0;
+}
+
+// 0 green, 1 yellow, 2 orange, 3 red. `low` = lower values are worse (FPS).
+static int health(double v, double a, double b, double c, BOOL low) {
+    if (v < 0) return -1;
+    if (low) return v >= a ? 0 : v >= b ? 1 : v >= c ? 2 : 3;
+    return v < a ? 0 : v < b ? 1 : v < c ? 2 : 3;
+}
+
+static void hudRow(NSMutableAttributedString *s, NSString *name, NSString *value, int h, NSFont *font, NSFont *bold) {
+    NSArray *colors = @[[NSColor colorWithSRGBRed:0.20 green:0.82 blue:0.40 alpha:1], [NSColor colorWithSRGBRed:1.00 green:0.82 blue:0.20 alpha:1],
+                        [NSColor colorWithSRGBRed:1.00 green:0.55 blue:0.15 alpha:1], [NSColor colorWithSRGBRed:1.00 green:0.27 blue:0.27 alpha:1]];
+    NSColor *dim = [NSColor colorWithWhite:1 alpha:0.6];
+    if (s.length) [s appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:(h >= 0 ? @"● " : @"  ")
+        attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: h >= 0 ? colors[h] : dim}]];
+    static NSParagraphStyle *tabs;
+    if (!tabs) {  // values start in one column whatever the label's width
+        NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new];
+        ps.tabStops = @[[[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentLeft location:font.pointSize * 4.6 options:@{}]];
+        tabs = ps;
+    }
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:[name stringByAppendingString:@"\t"]
+        attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: dim, NSParagraphStyleAttributeName: tabs}]];
+    [s appendAttributedString:[[NSAttributedString alloc] initWithString:value
+        attributes:@{NSFontAttributeName: bold, NSForegroundColorAttributeName: NSColor.whiteColor}]];
+}
+
+static void hudUpdate(void) {
+    static uint64_t lastFrames, lastNs, lastSlowNs;
+    static double fps, cpu = -1, gpu = -1, mem = -1, memTotal, temp = -1;
+    static int ticks;
+    CALayer *host = gHudHost;
+    BOOL on = access(gHudFlag, F_OK) == 0;
+    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW), frames = atomic_load(&gHudFrames);
+    if (lastNs) {
+        double inst = (frames - lastFrames) * 1e9 / (double)(now - lastNs);
+        fps = fps == 0 ? inst : fps * 0.6 + inst * 0.4;  // ~0.25 s smoothing: moves fast, doesn't flicker
+    }
+    BOOL presenting = frames != lastFrames;
+    lastFrames = frames; lastNs = now;
+    ticks = presenting ? 0 : ticks + 1;
+    if (!on || !host || ticks > 20) {  // off, or no frame for 2 s
+        if (gHudLayer.superlayer) { [CATransaction begin]; [CATransaction setDisableActions:YES]; [gHudLayer removeFromSuperlayer]; [CATransaction commit]; }
+        fps = 0;
+        return;
+    }
+    if (now - lastSlowNs > 500000000ull) {  // system readings twice a second
+        lastSlowNs = now;
+        cpu = cpuPercent(); gpu = gpuPercent(); mem = memoryUsedGB(&memTotal);
+        double t = chipTemperature(); temp = t > 0 ? t : -1;
+    }
+    CGFloat size = 11;
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightMedium];
+    NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold];
+    NSMutableAttributedString *s = [NSMutableAttributedString new];
+    hudRow(s, @"FPS", [NSString stringWithFormat:@"%.0f", fps], health(fps, 55, 40, 25, YES), font, bold);
+    hudRow(s, @"CPU", cpu < 0 ? @"-" : [NSString stringWithFormat:@"%.0f%%", cpu], health(cpu, 60, 80, 92, NO), font, bold);
+    hudRow(s, @"GPU", gpu < 0 ? @"-" : [NSString stringWithFormat:@"%.0f%%", gpu], health(gpu, 70, 85, 95, NO), font, bold);
+    hudRow(s, @"RAM", mem < 0 ? @"-" : [NSString stringWithFormat:@"%.1f/%.0f GB", mem, memTotal],
+           mem < 0 ? -1 : health(100 * mem / memTotal, 70, 82, 92, NO), font, bold);
+    hudRow(s, @"TEMP", temp < 0 ? @"-" : [NSString stringWithFormat:@"%.0f°C", temp], health(temp, 75, 88, 98, NO), font, bold);
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (!gHudLayer) {
+        gHudLayer = [CALayer layer];
+        gHudLayer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.55].CGColor;
+        gHudLayer.cornerRadius = 8;
+        gHudLayer.zPosition = 1000;
+        gHudText = [CATextLayer layer];
+        [gHudLayer addSublayer:gHudText];
+    }
+    if (gHudLayer.superlayer != host) [host addSublayer:gHudLayer];
+    gHudLayer.contentsScale = gHudText.contentsScale = MAX(host.contentsScale, 2);
+    gHudText.string = s;
+    CGSize text = [s size];
+    CGFloat pad = 8, m = 12, w = ceil(MAX(text.width, 110)) + 2 * pad, th = ceil(text.height), h = th + 2 * pad;
+    CGRect b = host.bounds;
+    gHudLayer.frame = CGRectMake(b.size.width - w - m, host.geometryFlipped ? m : b.size.height - h - m, w, h);
+    gHudText.frame = CGRectMake(pad, pad, w - 2 * pad, th);
+    [CATransaction commit];
+}
+
+static void hudInit(void) {
+    Dl_info info;
+    if (!dladdr((const void *)hudInit, &info) || !info.dli_fname) return;
+    const char *f = strstr(info.dli_fname, "/Frameworks/wynix_upscale.dylib");
+    if (!f) return;
+    NSString *contents = [[NSString alloc] initWithBytes:info.dli_fname length:f - info.dli_fname encoding:NSUTF8StringEncoding];
+    gHudFlag = strdup([contents stringByAppendingPathComponent:@"drive_c/steamy/hud"].fileSystemRepresentation);
+    NSString *exe = NSProcessInfo.processInfo.arguments.firstObject.lowercaseString ?: @"";
+    gHudSkip = [exe containsString:@"steam.exe"] || [exe containsString:@"steamwebhelper"] || [exe containsString:@"steamservice"];
+    if (gHudSkip) return;
+    static dispatch_source_t timer;
+    timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), NSEC_PER_SEC / 10, NSEC_PER_SEC / 50);
+    dispatch_source_set_event_handler(timer, ^{ @autoreleasepool { @try { hudUpdate(); } @catch (id e) {} } });
+    dispatch_resume(timer);
+}
+
 __attribute__((constructor)) static void wynixUpscaleInit(void) {
     const char *on = getenv("WYNIX_UPSCALE");
     gUpscale = on && strcmp(on, "1") == 0;
     const char *bf = getenv("WYNIX_BENCH_FILE");
     if (bf && *bf) gBenchPath = strdup(bf);
-    if (!gUpscale && !gBenchPath) return;
+    hudInit();
+    if (!gUpscale && !gBenchPath && !gHudFlag) return;
     gLog = getenv("WYNIX_UPSCALE_LOG") != NULL;
     gLabel = getenv("WYNIX_UPSCALE_LABEL") && strcmp(getenv("WYNIX_UPSCALE_LABEL"), "1") == 0;
-    gTemp = getenv("WYNIX_HUD_TEMP") && strcmp(getenv("WYNIX_HUD_TEMP"), "1") == 0;
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
     const char *to = getenv("WYNIX_UPSCALE_OUTPUT");
     if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }

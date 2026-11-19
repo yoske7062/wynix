@@ -479,6 +479,8 @@ final class BottleStore: ObservableObject {
         }
     }
 
+    private var hudMigrated = false
+
     func reload() {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: Self.root, includingPropertiesForKeys: nil)) ?? []
@@ -487,6 +489,7 @@ final class BottleStore: ObservableObject {
             .filter { fm.isExecutableFile(atPath: $0.wine.path) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         if list != bottles { bottles = list }  // no redraw on every app activation
+        if !hudMigrated { hudMigrated = true; list.forEach(removeAppleHUD) }
         let found = scanEngines()
         if found != engines { engines = found }
     }
@@ -704,7 +707,8 @@ final class BottleStore: ObservableObject {
             completion?(-1, "")  // callers set `activity` and clear it in completion
             return
         }
-        if upscaleDX12(bottle) || benchmarking(bottle) {  // a missing injected dylib would abort Wine
+        removeAppleHUD(bottle)
+        if needsDylib(bottle) {  // a missing injected dylib would abort Wine
             if !ensureUpscaler(bottle) {  // only for this launch; the setting stays, a later restore re-adds it
                 setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
                 alertMessage = "Boost (MetalFX upscaling) is off for this launch of \(bottle.name): its files could not be restored."
@@ -1165,43 +1169,44 @@ final class BottleStore: ObservableObject {
         objectWillChange.send()
     }
 
-    /// FPS overlay. Metal games (D3DMetal/DXMT) get Apple's Metal Performance HUD via the
-    /// wrapper's METAL_HUD flag; DXVK games get DXVK's own counter.
-    /// nil = off, "fps" = small frame rate, "advanced" = Apple's full HUD (resolution, GPU time, MetalFX...).
-    func hudMode(_ bottle: Bottle) -> String? {
-        guard flag(bottle, "METAL_HUD") else { return nil }
-        return plistDictionary(bottle)["WynixHUD"] as? String == "advanced" ? "advanced" : "fps"
-    }
+    /// WYNIX performance HUD (FPS, CPU, GPU, memory, temperature) drawn by wynix_upscale.dylib in
+    /// the game window. The dylib shows it while this file exists, so the toggle applies live.
+    func hudFlag(_ bottle: Bottle) -> URL { bottle.driveC.appendingPathComponent("steamy/hud") }
+    func hudOn(_ bottle: Bottle) -> Bool { FileManager.default.fileExists(atPath: hudFlag(bottle).path) }
 
-    func setHUD(_ bottle: Bottle, _ mode: String?) {
-        setPlist(bottle, ["METAL_HUD": mode == nil ? 0 : 1, "WynixHUD": mode ?? ""])
-        // "fps": only the frame rate (Apple's HUD otherwise shows a dozen developer metrics).
-        // "advanced": no MTL_HUD_* overrides, so Apple's default elements show.
-        // https://developer.apple.com/documentation/xcode/customizing-metal-performance-hud
-        let fps = mode == "fps"
-        let hud: [String: String?] = ["MTL_HUD_ELEMENTS": fps ? "fps" : nil, "MTL_HUD_SCALE": fps ? "0.12" : nil,
-                                      "MTL_HUD_OPACITY": fps ? "0.85" : nil, "MTL_HUD_DISABLE_MENU_BAR": fps ? "1" : nil,
-                                      "DXVK_HUD": mode == nil ? nil : (fps ? "fps" : "full")]
-        for (key, value) in hud { setEnvironment(bottle, key, value) }
-        setEnvironment(bottle, "WYNIX_UPSCALE_LABEL", mode == nil ? nil : "1")  // dylib draws "WYNIX Boost MetalFX in -> out"
-        setEnvironment(bottle, "WYNIX_HUD_TEMP", mode == "advanced" ? "1" : nil)  // ...plus the Mac's chip temperature
-        applyNowIfIdle(bottle)
-    }
+    /// The dylib is injected when any of its jobs is on: upscaling, benchmark recording or the HUD.
+    func needsDylib(_ bottle: Bottle) -> Bool { upscaleDX12(bottle) || benchmarking(bottle) || hudOn(bottle) }
 
-    /// Games inherit their environment from Steam, so a Steam that was already open (often hidden)
-    /// kept the old setting and the toggle looked broken. Close an idle Steam so the next Play
-    /// starts fresh; never close a running game or another bottle's program, just say so.
-    func applyNowIfIdle(_ bottle: Bottle) {
-        guard Self.windowsProgramsRunning else { return }
-        let game = Process()
-        game.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        game.arguments = ["-if", "steamapps.common."]
-        game.standardOutput = FileHandle.nullDevice
-        try? game.run(); game.waitUntilExit()
-        if bottle.isSteam && game.terminationStatus != 0 {
-            launcher(bottle, ["WSS-wineserverkill"])
+    func setHUD(_ bottle: Bottle, _ on: Bool) {
+        let fm = FileManager.default
+        if on {
+            guard ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path else {
+                alertMessage = "The performance HUD needs the WYNIX helper library, which can't be installed in this bottle (a space in its folder path, or its files could not be copied)."
+                return
+            }
+            try? fm.createDirectory(at: hudFlag(bottle).deletingLastPathComponent(), withIntermediateDirectories: true)
+            fm.createFile(atPath: hudFlag(bottle).path, contents: nil)
+            let wasInjected = environment(bottle)["DYLD_INSERT_LIBRARIES"] != nil
+            setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path)
+            if !wasInjected { noteRestartIfRunning() }  // already injected: it appears in the running game
         } else {
-            noteRestartIfRunning()
+            try? fm.removeItem(at: hudFlag(bottle))
+            if !needsDylib(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
+        }
+        removeAppleHUD(bottle)
+        objectWillChange.send()  // the toggle reads a file, not a published property
+    }
+
+    /// Older versions turned on Apple's Metal HUD / DXVK's counter; WYNIX draws its own now.
+    func removeAppleHUD(_ bottle: Bottle) {
+        let plist = plistDictionary(bottle)
+        if (plist["METAL_HUD"] as? NSNumber)?.boolValue == true || plist["WynixHUD"] != nil {
+            setPlist(bottle, ["METAL_HUD": 0, "WynixHUD": ""])
+        }
+        let env = environment(bottle)
+        for key in ["MTL_HUD_ELEMENTS", "MTL_HUD_SCALE", "MTL_HUD_OPACITY", "MTL_HUD_DISABLE_MENU_BAR",
+                    "DXVK_HUD", "WYNIX_UPSCALE_LABEL", "WYNIX_HUD_TEMP"] where env[key] != nil {
+            setEnvironment(bottle, key, nil)
         }
     }
 
@@ -1365,7 +1370,7 @@ final class BottleStore: ObservableObject {
         }
         setEnvironment(bottle, "WYNIX_BENCH_FILE", on ? benchDir(bottle).path + "/" : nil)
         if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) }
-        else if !upscaleDX12(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
+        else if !upscaleDX12(bottle) && !hudOn(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
         setPlist(bottle, ["WynixBenchmark": on ? 1 : 0])
         noteRestartIfRunning()
     }
@@ -1399,7 +1404,7 @@ final class BottleStore: ObservableObject {
                 : "Boost (MetalFX upscaling) could not be installed into \(bottle.name)."
             return
         }
-        if on || !benchmarking(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", on ? path : nil) }
+        if on { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path) } else if !hudOn(bottle) && !benchmarking(bottle) { setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil) }
         setEnvironment(bottle, "WYNIX_UPSCALE", on ? "1" : nil)
         setEnvironment(bottle, "WYNIX_UPSCALE_SCALE", nil)  // retired; cleans old bottles
         setPlist(bottle, ["WynixUpscaleDX12": on ? 1 : 0])  // 0 = explicit off, missing = default on (Steam)
@@ -1928,12 +1933,8 @@ struct BottleSidePanel: View {
                     plistToggle("ESync", key: "WINEESYNC")
                     plistToggle("DirectX 9 via DXVK (D9VK)", key: "D9VK")
                     plistToggle("DirectDraw fix (cnc-ddraw)", key: "CNC_DDRAW")
-                    SettingRow("Show FPS (in game)") {
-                        Toggle("", isOn: Binding(get: { store.hudMode(bottle) == "fps" }, set: { store.setHUD(bottle, $0 ? "fps" : nil) }))
-                            .toggleStyle(.switch).labelsHidden()
-                    }
-                    SettingRow("Show advanced stats (in game)") {
-                        Toggle("", isOn: Binding(get: { store.hudMode(bottle) == "advanced" }, set: { store.setHUD(bottle, $0 ? "advanced" : nil) }))
+                    SettingRow("Show performance HUD (in game)") {
+                        Toggle("", isOn: Binding(get: { store.hudOn(bottle) }, set: { store.setHUD(bottle, $0) }))
                             .toggleStyle(.switch).labelsHidden()
                     }
                     plistToggle("Fast Math", key: "FASTMATH")
@@ -2103,10 +2104,8 @@ struct BottleSidePanel: View {
                              detail: "D3DMetal 4 (beta) is the default. Turn this on if a game crashes or looks wrong. Using D3DMetal \(version)",
                              isOn: store.wantsD3DMetal3(bottle)) { store.setD3DMetal4(bottle, on: !$0) }
             }
-            simpleToggle("Show FPS", detail: "See the frame rate while you play",
-                         isOn: store.hudMode(bottle) == "fps") { store.setHUD(bottle, $0 ? "fps" : nil) }
-            simpleToggle("Show advanced stats in game", detail: "Resolution, GPU time, frame interval and MetalFX status",
-                         isOn: store.hudMode(bottle) == "advanced") { store.setHUD(bottle, $0 ? "advanced" : nil) }
+            simpleToggle("Show performance HUD", detail: "FPS, CPU, GPU, memory and temperature, small in the top right while you play",
+                         isOn: store.hudOn(bottle)) { store.setHUD(bottle, $0) }
             simpleToggle("Mac Keyboard Shortcuts", detail: "⌘C, ⌘V and ⌘Z work like on your Mac",
                          isOn: macDriver["LeftCommandIsCtrl"]?.lowercased() == "y") { on in
                 let v = on ? "y" : "n"

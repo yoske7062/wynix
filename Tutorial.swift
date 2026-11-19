@@ -27,7 +27,7 @@ enum Tutorial {
                          text: "In the game, pick a lower resolution with your screen's shape (1280×720 or 1600×900) and MetalFX sharpens it up to 1080p. DirectX 12 games are capped at 60 FPS so fanless Macs stay cool. D3DMetal 4 downloads by itself; 3.0 stays as a compatibility option.",
                          section: nil),
             TutorialStep(icon: "shippingbox.fill", title: "Bottles and FPS",
-                         text: "A bottle is a separate Windows space for a set of games or apps. Open one to turn on Show FPS or advanced stats in game, or Record performance: play, close the game and get a card with average FPS and 1% low (last 10 runs are kept).",
+                         text: "A bottle is a separate Windows space for a set of games or apps. Open one to turn on the performance HUD (FPS, CPU, GPU, memory, temperature) in game, or Record performance: play, close the game and get a card with average FPS and 1% low (last 10 runs are kept).",
                          section: steamBottle.map { .bottle($0) } ?? .management),
             TutorialStep(icon: "plus.app.fill", title: "Install Software",
                          text: "Got a Windows .exe or .msi? Drop it into the Install Software window and pick a bottle. It opens like a Mac app. Right click any program tile and choose Rename... to give it your own name.",
