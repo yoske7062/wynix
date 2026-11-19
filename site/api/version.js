@@ -24,5 +24,7 @@ module.exports = async (req, res) => {
     } catch (_) {}
   }
   res.setHeader('Cache-Control', 'no-store');
-  res.status(200).json(release);
+  // Builds <= 0.21 only accept downloads from wynix.vercel.app; keep them updatable.
+  const old = req.headers.host === 'wynix.vercel.app';
+  res.status(200).json(old ? { ...release, url: 'https://wynix.vercel.app/api/dl' } : release);
 };

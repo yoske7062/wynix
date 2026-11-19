@@ -1184,6 +1184,25 @@ final class BottleStore: ObservableObject {
                                       "DXVK_HUD": mode == nil ? nil : (fps ? "fps" : "full")]
         for (key, value) in hud { setEnvironment(bottle, key, value) }
         setEnvironment(bottle, "WYNIX_UPSCALE_LABEL", mode == nil ? nil : "1")  // dylib draws "WYNIX Boost MetalFX in -> out"
+        setEnvironment(bottle, "WYNIX_HUD_TEMP", mode == "advanced" ? "1" : nil)  // ...plus the Mac's chip temperature
+        applyNowIfIdle(bottle)
+    }
+
+    /// Games inherit their environment from Steam, so a Steam that was already open (often hidden)
+    /// kept the old setting and the toggle looked broken. Close an idle Steam so the next Play
+    /// starts fresh; never close a running game or another bottle's program, just say so.
+    func applyNowIfIdle(_ bottle: Bottle) {
+        guard Self.windowsProgramsRunning else { return }
+        let game = Process()
+        game.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        game.arguments = ["-if", "steamapps.common."]
+        game.standardOutput = FileHandle.nullDevice
+        try? game.run(); game.waitUntilExit()
+        if bottle.isSteam && game.terminationStatus != 0 {
+            launcher(bottle, ["WSS-wineserverkill"])
+        } else {
+            noteRestartIfRunning()
+        }
     }
 
     // MARK: D3DMetal 4 (beta) with 3.0 fallback

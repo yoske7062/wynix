@@ -59,6 +59,45 @@ static IMP gOrigWaitDrawable, gOrigSignalDrawable;  // MTL4CommandQueue (Metal 4
 static IMP gOrigSetDrawableSize, gOrigDrawableSize, gOrigNextDrawable, gOrigPresent, gOrigPresentAt, gOrigPresentAfter;
 static char kStateKey, kInfoKey;
 static BOOL gUpscale;
+static BOOL gTemp;  // WYNIX_HUD_TEMP=1: add the chip temperature to the label (advanced stats)
+
+// ---- Chip temperature ----
+// Private IOHIDEventSystem API (same one Stats/iStat use; works under Rosetta). Hottest "tdie" sensor
+// in degrees C, or 0 when unavailable. ponytail: Apple Silicon sensor names only; Intel Macs get 0.
+typedef struct __IOHIDEventSystemClient *WynixHIDClient;
+typedef struct __IOHIDServiceClient *WynixHIDService;
+typedef struct __IOHIDEvent *WynixHIDEvent;
+extern WynixHIDClient IOHIDEventSystemClientCreate(CFAllocatorRef);
+extern int IOHIDEventSystemClientSetMatching(WynixHIDClient, CFDictionaryRef);
+extern CFArrayRef IOHIDEventSystemClientCopyServices(WynixHIDClient);
+extern WynixHIDEvent IOHIDServiceClientCopyEvent(WynixHIDService, int64_t, int32_t, int64_t);
+extern double IOHIDEventGetFloatValue(WynixHIDEvent, int32_t);
+extern CFTypeRef IOHIDServiceClientCopyProperty(WynixHIDService, CFStringRef);
+
+static double chipTemperature(void) {
+    static NSArray *sensors;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        WynixHIDClient c = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        if (!c) return;
+        IOHIDEventSystemClientSetMatching(c, (__bridge CFDictionaryRef)@{@"PrimaryUsagePage": @0xff00, @"PrimaryUsage": @5});
+        NSMutableArray *found = [NSMutableArray array];
+        for (id s in CFBridgingRelease(IOHIDEventSystemClientCopyServices(c))) {
+            NSString *name = CFBridgingRelease(IOHIDServiceClientCopyProperty((__bridge WynixHIDService)s, CFSTR("Product")));
+            if ([name containsString:@"tdie"]) [found addObject:s];
+        }
+        sensors = found;  // the services keep working after the client is gone only while referenced
+    });
+    double hottest = 0;
+    for (id s in sensors) {
+        WynixHIDEvent e = IOHIDServiceClientCopyEvent((__bridge WynixHIDService)s, 15 /* temperature */, 0, 0);
+        if (!e) continue;
+        double t = IOHIDEventGetFloatValue(e, 15 << 16);
+        CFRelease(e);
+        if (t > hottest && t < 150) hottest = t;
+    }
+    return hottest;
+}
 
 // ---- Benchmark recording (WYNIX_BENCH_FILE) ----
 // One uint64 timestamp (ns, CLOCK_UPTIME_RAW) per presented frame in a preallocated buffer (8 MB, pages
@@ -84,6 +123,7 @@ static char *gBenchFile;  // resolved file name, set on the first flush
 @property MTLPixelFormat format;
 @property id<MTLTexture> label;   // pre-rendered "WYNIX Boost" box, same format as the drawable
 @property BOOL labelTried;
+@property CFTimeInterval labelTime;  // when the label was drawn; with WYNIX_HUD_TEMP it is redrawn every 2 s
 @property MTLFXSpatialScalerDescriptor *desc;
 @property id mtl4Scaler;       // id<MTL4FXSpatialScaler>, created lazily on the first Metal 4 frame
 @property id mtl4Residency;    // id<MTLResidencySet> holding the ring textures
@@ -358,6 +398,8 @@ static id<MTLTexture> makeLabel(WynixLayerState *s, id<MTLDevice> dev) {
     CGFloat fs = MAX(14, round(s.outH / 60.0));
     NSString *text = [NSString stringWithFormat:@"WYNIX Boost  MetalFX %lux%lu -> %lux%lu",
                       (unsigned long)s.inW, (unsigned long)s.inH, (unsigned long)s.outW, (unsigned long)s.outH];
+    double temp = gTemp ? chipTemperature() : 0;
+    if (temp > 0) text = [text stringByAppendingFormat:@"   Mac %.0f°C", temp];
     CTFontRef font = CTFontCreateWithName(CFSTR("Helvetica-Bold"), fs, NULL);
     CFStringRef keys[] = { kCTFontAttributeName, kCTForegroundColorFromContextAttributeName };
     CFTypeRef vals[] = { font, kCFBooleanTrue };
@@ -419,7 +461,11 @@ static id<MTLDrawable> upscaleInto(id<MTLCommandBuffer> cb, id<MTLDrawable> draw
         [scaler encodeToCommandBuffer:cb];
         if (gLabel) {
             WynixLayerState *st = p.state;
-            if (!st.labelTried) { st.labelTried = YES; @try { st.label = makeLabel(st, cb.device); } @catch (id e) {} }
+            CFTimeInterval now = CACurrentMediaTime();
+            if (!st.labelTried || (gTemp && now - st.labelTime > 2)) {
+                st.labelTried = YES; st.labelTime = now;
+                @try { st.label = makeLabel(st, cb.device); } @catch (id e) {}
+            }
             id<MTLTexture> l = st.label, dst = p.real.texture;
             if (l && dst.pixelFormat == l.pixelFormat && dst.width >= l.width && dst.height >= l.height) {
                 id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
@@ -570,6 +616,7 @@ __attribute__((constructor)) static void wynixUpscaleInit(void) {
     if (!gUpscale && !gBenchPath) return;
     gLog = getenv("WYNIX_UPSCALE_LOG") != NULL;
     gLabel = getenv("WYNIX_UPSCALE_LABEL") && strcmp(getenv("WYNIX_UPSCALE_LABEL"), "1") == 0;
+    gTemp = getenv("WYNIX_HUD_TEMP") && strcmp(getenv("WYNIX_HUD_TEMP"), "1") == 0;
     gAnyLayer = getenv("WYNIX_UPSCALE_ANY_LAYER") != NULL;
     const char *to = getenv("WYNIX_UPSCALE_OUTPUT");
     if (to) { unsigned w = 0, h = 0; if (sscanf(to, "%ux%u", &w, &h) == 2) { gTestOutW = w; gTestOutH = h; } }

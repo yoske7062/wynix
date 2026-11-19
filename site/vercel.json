@@ -42,5 +42,18 @@
         }
       ]
     }
+  ],
+  "redirects": [
+    {
+      "source": "/((?!api/|downloads/|version\\.json).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "wynix.vercel.app"
+        }
+      ],
+      "destination": "https://wynix.app/$1",
+      "permanent": true
+    }
   ]
 }
