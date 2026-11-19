@@ -1,13 +1,13 @@
 import SwiftUI
 import AppKit
 
-/// Checks wynix.me/version.json on launch (and every 6 h) and shows a
+/// Checks wynix.app/version.json on launch (and every 6 h) and shows a
 /// "Update available" button in the sidebar. The download opens in the browser;
 /// the user drags the new WYNIX into Applications like the first time.
 @MainActor
 final class Updater: ObservableObject {
     static let shared = Updater()
-    static let feedBase = "https://wynix.me/api/version"
+    static let feedBase = "https://wynix.app/api/version"
 
     /// Random ID created on first launch. Lets us count installs without knowing who you are.
     static var installID: String {
@@ -64,7 +64,7 @@ final class Updater: ObservableObject {
     /// Only open download links on our own site over HTTPS, so a tampered feed
     /// can't send users to a look-alike download.
     nonisolated static func isTrusted(_ url: URL) -> Bool {
-        url.scheme == "https" && url.host == "wynix.me" && url.user == nil && url.port == nil
+        url.scheme == "https" && url.host == "wynix.app" && url.user == nil && url.port == nil
     }
 }
 

@@ -8,7 +8,7 @@
 
 **A free, open-source macOS app that helps Apple Silicon Mac users install Windows Steam and launch compatible Windows-only Steam games.** WYNIX automates the Sikarugir/Wine and D3DMetal setup without requiring a Windows virtual machine or a CrossOver subscription.
 
-[Download WYNIX](https://wynix.me/) · [Share feedback](https://github.com/yoske7062/wynix/discussions) · [Report a bug or game](https://github.com/yoske7062/wynix/issues/new/choose)
+[Download WYNIX](https://wynix.app/) · [Share feedback](https://github.com/yoske7062/wynix/discussions) · [Report a bug or game](https://github.com/yoske7062/wynix/issues/new/choose)
 
 [![CI](https://github.com/yoske7062/wynix/actions/workflows/ci.yml/badge.svg)](https://github.com/yoske7062/wynix/actions/workflows/ci.yml) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-black) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -20,13 +20,13 @@
 
 ## Quick start
 
-1. Download the current WYNIX build from [wynix.me](https://wynix.me/). Older versions and the fallback ZIP are available on [GitHub Releases](https://github.com/yoske7062/wynix/releases).
+1. Download the current WYNIX build from [wynix.app](https://wynix.app/). Older versions and the fallback ZIP are available on [GitHub Releases](https://github.com/yoske7062/wynix/releases).
 2. Open the DMG and drag `WYNIX.app` onto the `Applications` folder shown beside it.
 3. Try to open `WYNIX.app` once.
 4. If macOS blocks it, go to **System Settings → Privacy & Security → Open Anyway**. This approval is only required once.
 5. Open the app, choose **Set Up Steam**, and complete the Steam installer using its default path.
 
-The current public build uses an ad-hoc signature and is not notarized by Apple. Download it only from [wynix.me](https://wynix.me/) or this repository. A `.sha256` file is included with each release so you can verify the download.
+The current public build uses an ad-hoc signature and is not notarized by Apple. Download it only from [wynix.app](https://wynix.app/) or this repository. A `.sha256` file is included with each release so you can verify the download.
 
 ## Requirements and limitations
 

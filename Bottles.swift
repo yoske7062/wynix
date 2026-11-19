@@ -359,7 +359,7 @@ final class LockedData: @unchecked Sendable {
 /// 4.0b3 is staged in ~/Library/Application Support/Steamy/D3DMetal/4.0b3, downloaded once from the
 /// WYNIX site (SHA-256 pinned below); until then, or if the download fails, bottles stay on 3.0.
 enum D3DMetalSwap {
-    static let downloadURL = "https://wynix.me/downloads/d3dmetal-4.0b3.tar.xz"
+    static let downloadURL = "https://wynix.app/downloads/d3dmetal-4.0b3.tar.xz"
     static let expectedSHA256 = "189c582f3cea43834fa155cca060cc500954a100549c072822b6a0f457360c7c"
 
     static func sha256(of file: URL) -> String? {
