@@ -824,7 +824,9 @@ LAUNCHER="$WRAPPER/Contents/MacOS/Sikarugir"
 phase "windows"
 message_key preparing_windows
 if [[ ! -d "$WRAPPER/Contents/drive_c/windows" ]]; then
-  with_timeout 900 "$LAUNCHER" WSS-wineprefixcreate || true  # the launcher can stay open after creating the prefix
+  if ! with_timeout 900 "$LAUNCHER" WSS-wineprefixcreate; then  # the launcher can stay open after creating the prefix
+    "$LAUNCHER" WSS-wineserverkill >/dev/null 2>&1 || true
+  fi
 fi
 [[ -d "$WRAPPER/Contents/drive_c/Program Files (x86)" ]] || fail_key windows_environment_failed
 
