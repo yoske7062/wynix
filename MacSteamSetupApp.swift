@@ -13,9 +13,7 @@ enum L10n {
         String(format: string(key), locale: Locale.current, arguments: arguments)
     }
 
-    static var languageCode: String {
-        Bundle.main.preferredLocalizations.first == "ko" ? "ko" : "en"
-    }
+    static let languageCode = "en"
 }
 
 struct SteamGame: Identifiable, Equatable {
@@ -42,7 +40,6 @@ final class InstallerModel: ObservableObject {
     @Published var operationInProgress = false
     @Published var isSteamRunning = false
     @Published var games: [SteamGame] = []
-    @Published var localizedGameNames: [String: String] = [:]
     /// Per Steam App ID: "framegen", "dlss" or "none" (from the NVIDIA runtime files the game ships).
     @Published var dlssSupport: [String: String] = [:]
     @Published var shortcutMessage = ""
@@ -54,7 +51,6 @@ final class InstallerModel: ObservableObject {
     private var runtimeProcess: Process?
     private var pendingOutput = ""
     private var statusTimer: AnyCancellable?
-    private var requestedLocalizedNames: Set<String> = []
     private var pendingGames: [SteamGame]?
 
     var isBusy: Bool { state == .checking || state == .installing || operationInProgress }
@@ -365,10 +361,8 @@ final class InstallerModel: ObservableObject {
                 )
                 if pendingGames != nil, pendingGames?.contains(game) == false {
                     pendingGames?.append(game)
-                    fetchLocalizedName(for: game)
                 } else if pendingGames == nil, !games.contains(game) {
                     games.append(game)
-                    fetchLocalizedName(for: game)
                 }
             }
         } else if value.hasPrefix("@@DLSS|") {
@@ -411,39 +405,6 @@ final class InstallerModel: ObservableObject {
         let currentText = formatter.string(fromByteCount: current)
         guard total > 0 else { return "\(label) · \(currentText)" }
         return "\(label) · \(currentText) / \(formatter.string(fromByteCount: total))"
-    }
-
-    private func fetchLocalizedName(for game: SteamGame) {
-        guard game.id.allSatisfy(\.isNumber), !requestedLocalizedNames.contains(game.id) else { return }
-        requestedLocalizedNames.insert(game.id)
-
-        guard L10n.languageCode == "ko" else { return }
-        let cacheKey = "localizedGameName.ko.\(game.id)"
-        if let cached = UserDefaults.standard.string(forKey: cacheKey), !cached.isEmpty {
-            if cached.caseInsensitiveCompare(game.name) != .orderedSame {
-                localizedGameNames[game.id] = cached
-            }
-            return
-        }
-
-        guard let url = URL(string: "https://store.steampowered.com/api/appdetails?appids=\(game.id)&l=koreana&cc=KR") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
-            guard let data,
-                  (response as? HTTPURLResponse)?.statusCode == 200,
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let app = root[game.id] as? [String: Any],
-                  app["success"] as? Bool == true,
-                  let details = app["data"] as? [String: Any],
-                  let localizedName = details["name"] as? String,
-                  !localizedName.isEmpty else { return }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                UserDefaults.standard.set(localizedName, forKey: cacheKey)
-                if localizedName.caseInsensitiveCompare(game.name) != .orderedSame {
-                    self.localizedGameNames[game.id] = localizedName
-                }
-            }
-        }.resume()
     }
 
     private func friendlyPhase(_ raw: String) -> String {
@@ -913,7 +874,7 @@ struct GameLibraryView: View {
                         ForEach(visibleGames) { game in
                             let isHidden = hidden.contains(game.id)
                             GameCoverCard(game: game,
-                                          name: model.localizedGameNames[game.id] ?? game.name,
+                                          name: game.name,
                                           dlss: model.dlssSupport[game.id],
                                           starting: startingID == game.id,
                                           disabled: model.operationInProgress) { play(game) }

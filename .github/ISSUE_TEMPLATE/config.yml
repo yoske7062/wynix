@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Questions, ideas, and general feedback / 질문, 아이디어, 사용 후기
+  - name: Questions, ideas, and general feedback
     url: https://github.com/yoske7062/wynix/discussions
-    about: Start an open conversation in GitHub Discussions. / GitHub Discussions에서 자유롭게 이야기해 주세요.
+    about: Start an open conversation in GitHub Discussions.

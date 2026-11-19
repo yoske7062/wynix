@@ -24,7 +24,6 @@ jobs:
           codesign --verify --deep --strict "build/WYNIX.app"
           test "$(lipo -archs 'build/WYNIX.app/Contents/MacOS/MacSteamSetup')" = "arm64"
           test -f "build/WYNIX.app/Contents/Resources/en.lproj/Localizable.strings"
-          test -f "build/WYNIX.app/Contents/Resources/ko.lproj/Localizable.strings"
           test -f "build/WYNIX.app/Contents/Resources/localization.sh"
 
       - name: Verify DMG packaging

@@ -5,6 +5,7 @@ SCRIPT_DIR="${0:A:h}"
 APP="$SCRIPT_DIR/build/WYNIX.app"
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+/bin/rm -rf "$APP/Contents/Resources/ko.lproj"
 /usr/bin/swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos14.0 \
   -framework SwiftUI -framework AppKit -framework Combine \
   "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" "$SCRIPT_DIR/Updater.swift" \
@@ -22,7 +23,6 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/game_launch.bat.template" "$APP/Contents/Resources/game_launch.bat.template"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/Logos" "$APP/Contents/Resources/Logos"
 /usr/bin/ditto "$SCRIPT_DIR/Resources/en.lproj" "$APP/Contents/Resources/en.lproj"
-/usr/bin/ditto "$SCRIPT_DIR/Resources/ko.lproj" "$APP/Contents/Resources/ko.lproj"
 /usr/bin/ditto "$SCRIPT_DIR/Assets/AppIcon.icns" "$APP/Contents/Resources/WYNIXIcon.icns"
 /usr/bin/ditto "$SCRIPT_DIR/LICENSE" "$APP/Contents/Resources/LICENSE"
 /usr/bin/ditto "$SCRIPT_DIR/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"

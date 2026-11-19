@@ -167,7 +167,7 @@ CP="$tmp_part" /bin/bash -c 'trap '"'"'status=$?; /bin/rm -f "$CP"; exit "$statu
 [[ "$(/usr/bin/grep -c 'curl --connect-timeout 20' "$setup_src")" -ge 3 ]] || fail "every curl in setup.sh needs --connect-timeout"
 /usr/bin/grep -q -- '--speed-time 60' "$setup_src" || fail "downloads must abort when stalled"
 [[ "$(/usr/bin/grep -c 'games_drive_missing' "$setup_src")" -ge 3 ]] || fail "list-games and play must report a missing games drive"
-/usr/bin/grep -q 'en:games_drive_missing' "$ROOT/Resources/localization.sh" && /usr/bin/grep -q 'ko:games_drive_missing' "$ROOT/Resources/localization.sh" || fail "games_drive_missing needs en and ko"
+/usr/bin/grep -q 'en:games_drive_missing' "$ROOT/Resources/localization.sh" || fail "games_drive_missing needs English text"
 # Behavior: only libraries outside the bottle count as an unplugged drive.
 eval "$(/usr/bin/awk '/^(all_steam_libraries|games_drive_missing)\(\) \{/{p=1} p{print} p&&/^}/{p=0}' "$setup_src")"
 WRAPPER="$tmp_dir/W.app"; PREFIX_ROOT="$WRAPPER/Contents/SharedSupport/prefix"; STEAMAPPS="$WRAPPER/Contents/drive_c/Steam/steamapps"

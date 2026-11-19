@@ -1,6 +1,6 @@
 # WYNIX: Run Windows Steam Games on Apple Silicon Mac
 
-**English** | [한국어](README.ko.md)
+**English**
 
 <p align="center">
   <img src="Assets/AppIcon.png" width="128" alt="WYNIX icon">
@@ -40,7 +40,7 @@ The current public build uses an ad-hoc signature and is not notarized by Apple.
 ## What it does
 
 - Shows step-by-step setup progress and downloaded size
-- Follows the macOS language automatically in English and Korean
+- Uses English throughout the app and setup scripts
 - Prevents duplicate installation and launch requests
 - Configures the official Sikarugir engine, Wine wrapper, D3DMetal, and Steam path
 - Provides per-game graphics recommendations, Boost, a built-in benchmark, and optional Steam pre-warming
@@ -56,7 +56,7 @@ Releases contain only the small WYNIX app. The app downloads pinned Sikarugir en
 
 After a game is installed through Windows Steam, WYNIX can generate a small macOS app that starts Steam in the wrapper and launches the corresponding Steam App ID. The shortcut does not copy the game or Wine environment.
 
-Steam's initial network check may take about a minute on some connections. An IPv6 `TIMEOUT` can also appear during an otherwise normal launch; see the [Windows Steam startup network-delay notes](docs/diagnostics/steam-startup-network-delay.md). The initial Wine updater cannot render Korean fonts correctly, so Steam is prepared in English by default. You can change the language later in Steam settings.
+Steam's initial network check may take about a minute on some connections. An IPv6 `TIMEOUT` can also appear during an otherwise normal launch. Steam is prepared in English by default, and its language can be changed later in Steam settings.
 
 ## Build and verify
 
