@@ -72,7 +72,7 @@
 "steam.open" = "Open Windows Steam";
 "steam.running" = "Windows Steam Running";
 "alert.error.title" = "Something went wrong";
-"bottle.creating" = "Creating bottle %@…";
+"bottle.creating" = "Creating bottle %@… (the first one downloads Wine, 1-3 min)";
 "bottle.createFailed" = "Could not create the bottle.\n%@";
 "bottle.invalidName" = "Invalid bottle name.";
 "play.queued" = "Starting %@ when Steam is ready…";

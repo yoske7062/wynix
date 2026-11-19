@@ -670,82 +670,8 @@ if [[ "${1:-setup}" == "repair" ]]; then
   exit 0
 fi
 
-if [[ "${1:-setup}" == "create-bottle" ]]; then
-  bottle_name="${2:-}"
-  name_re='^[A-Za-z0-9 _.-]{1,40}$'
-  [[ "$bottle_name" =~ $name_re && "$bottle_name" != .* ]] || fail "Invalid bottle name."
-  # Bottles always appear in ~/Applications/Sikarugir; STEAMY_BOTTLE_DIR (e.g. a folder on an
-  # external SSD) stores the real bottle there and leaves a symlink here.
-  bottle_link="$HOME/Applications/Sikarugir/${bottle_name}.app"
-  bottle="$bottle_link"
-  if [[ -n "${STEAMY_BOTTLE_DIR:-}" ]]; then
-    /bin/mkdir -p "$STEAMY_BOTTLE_DIR" || fail "Could not create ${STEAMY_BOTTLE_DIR}."
-    bottle="$STEAMY_BOTTLE_DIR/${bottle_name}.app"
-  fi
-  [[ ! -e "$bottle_link" && ! -L "$bottle_link" && ! -e "$bottle" && ! -L "$bottle" ]] \
-    || fail "A bottle named ${bottle_name} already exists."
-  [[ -s "$ENGINE_ARCHIVE" && -s "$TEMPLATE_ARCHIVE" ]] \
-    || fail_key setup_steam_first
-  [[ "$(/usr/bin/shasum -a 256 "$ENGINE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$ENGINE_SHA256" \
-      && "$(/usr/bin/shasum -a 256 "$TEMPLATE_ARCHIVE" | /usr/bin/awk '{print $1}')" == "$TEMPLATE_SHA256" ]] \
-    || fail "The cached Wine engine is damaged. Run Steam setup again."
-  acquire_setup_lock
-  install_wrapper_atomically "$TEMPLATE_ARCHIVE" "$ENGINE_ARCHIVE" "$TEMPLATE" "$bottle" "$APP_CACHE" \
-    || fail "Could not create the bottle."
-  bottle_plist="$bottle/Contents/Info.plist"
-  plist_set "$bottle_plist" D3DMETAL integer 1
-  plist_set "$bottle_plist" SteamyAutoGraphics integer 1
-  plist_set "$bottle_plist" LSUIElement bool true
-  plist_set "$bottle_plist" CFBundleName string "$bottle_name"
-  plist_set "$bottle_plist" CFBundleIdentifier string "local.macsteam.bottle.$(/usr/bin/uuidgen)"
-  # The launcher sometimes stays open after creating the prefix (seen on external drives), so
-  # wait for the prefix and for Wine to go idle, then close it ourselves.
-  "$bottle/Contents/MacOS/Sikarugir" WSS-wineprefixcreate >/dev/null 2>&1 &
-  prefix_pid=$!
-  for _ in {1..600}; do
-    /bin/kill -0 "$prefix_pid" 2>/dev/null || break
-    if [[ -f "$bottle/Contents/SharedSupport/prefix/system.reg" && -d "$bottle/Contents/drive_c/windows" ]] \
-      && ! /bin/ps -axo command= | /usr/bin/awk -v p="$bottle/Contents/SharedSupport/wine" 'index($0, p) && !/awk/ { f = 1 } END { exit !f }'; then  # awk reads all input (no SIGPIPE) and skips its own argv
-      /bin/sleep 2
-      /bin/kill -TERM "$prefix_pid" 2>/dev/null || true
-      break
-    fi
-    /bin/sleep 1
-  done
-  /bin/kill -TERM "$prefix_pid" 2>/dev/null || true  # still open after 10 min: don't wait on it forever
-  wait "$prefix_pid" 2>/dev/null || true
-  [[ -d "$bottle/Contents/drive_c/windows" ]] || fail "The Windows environment could not be created."
-  "$bottle/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
-  if [[ "$bottle" != "$bottle_link" ]]; then
-    /bin/mkdir -p "${bottle_link%/*}"
-    /bin/ln -s "$bottle" "$bottle_link" || fail "Could not link the bottle into Applications."
-  fi
-  printf '@@BOTTLE|%s\n' "$bottle_link"
-  exit 0
-fi
-
-acquire_setup_lock
-
-phase "checking"
-message_key checking_requirements
-[[ "$(uname -m)" == "arm64" ]] || fail_key apple_silicon_required
-MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
-(( MACOS_MAJOR >= 14 )) || fail_key macos_14_required
-if ! /usr/sbin/pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1; then
-  phase "rosetta"
-  message_key installing_rosetta
-  /usr/sbin/softwareupdate --install-rosetta --agree-to-license \
-    || fail_key rosetta_install_failed
-fi
-/usr/sbin/pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1 \
-  || fail_key rosetta_verify_failed
-FREE_GB="$(df -g "$HOME" | awk 'NR==2 {print $4}')"
-(( FREE_GB >= 5 )) || fail_key disk_space_required
-
-phase "downloading"
-message_key downloading_components
-mkdir -p "$CACHE/Engines" "$CACHE/Template" "$APP_CACHE" "$HOME/Applications/Sikarugir"
-
+# Requirements, Rosetta and the pinned Wine engine + bottle template. Shared by Steam setup and
+# create-bottle, so a fresh Mac can make any bottle (Epic, GOG, ...) without installing Steam first.
 fetch() {
   local url="$1"
   local destination="$2"
@@ -802,8 +728,85 @@ fetch() {
   printf '@@DOWNLOAD|%s|%s|%s\n' "$label" "$(/usr/bin/stat -f %z "$destination")" "$(/usr/bin/stat -f %z "$destination")"
 }
 
-fetch "$ENGINE_URL" "$ENGINE_ARCHIVE" "$ENGINE_SHA256" "$(ui_text runtime_engine)" 15 20
-fetch "$TEMPLATE_URL" "$TEMPLATE_ARCHIVE" "$TEMPLATE_SHA256" "$(ui_text app_template)" 35 10
+
+prepare_engine() {
+  phase "checking"
+  message_key checking_requirements
+  [[ "$(uname -m)" == "arm64" ]] || fail_key apple_silicon_required
+  MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+  (( MACOS_MAJOR >= 14 )) || fail_key macos_14_required
+  if ! /usr/sbin/pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1; then
+    phase "rosetta"
+    message_key installing_rosetta
+    /usr/sbin/softwareupdate --install-rosetta --agree-to-license \
+      || fail_key rosetta_install_failed
+  fi
+  /usr/sbin/pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1 \
+    || fail_key rosetta_verify_failed
+  FREE_GB="$(df -g "$HOME" | awk 'NR==2 {print $4}')"
+  (( FREE_GB >= 5 )) || fail_key disk_space_required
+
+  phase "downloading"
+  message_key downloading_components
+  mkdir -p "$CACHE/Engines" "$CACHE/Template" "$APP_CACHE" "$HOME/Applications/Sikarugir"
+
+  fetch "$ENGINE_URL" "$ENGINE_ARCHIVE" "$ENGINE_SHA256" "$(ui_text runtime_engine)" 15 20
+  fetch "$TEMPLATE_URL" "$TEMPLATE_ARCHIVE" "$TEMPLATE_SHA256" "$(ui_text app_template)" 35 10
+}
+
+if [[ "${1:-setup}" == "create-bottle" ]]; then
+  bottle_name="${2:-}"
+  name_re='^[A-Za-z0-9 _.-]{1,40}$'
+  [[ "$bottle_name" =~ $name_re && "$bottle_name" != .* ]] || fail "Invalid bottle name."
+  # Bottles always appear in ~/Applications/Sikarugir; STEAMY_BOTTLE_DIR (e.g. a folder on an
+  # external SSD) stores the real bottle there and leaves a symlink here.
+  bottle_link="$HOME/Applications/Sikarugir/${bottle_name}.app"
+  bottle="$bottle_link"
+  if [[ -n "${STEAMY_BOTTLE_DIR:-}" ]]; then
+    /bin/mkdir -p "$STEAMY_BOTTLE_DIR" || fail "Could not create ${STEAMY_BOTTLE_DIR}."
+    bottle="$STEAMY_BOTTLE_DIR/${bottle_name}.app"
+  fi
+  [[ ! -e "$bottle_link" && ! -L "$bottle_link" && ! -e "$bottle" && ! -L "$bottle" ]] \
+    || fail "A bottle named ${bottle_name} already exists."
+  acquire_setup_lock
+  prepare_engine  # downloads Wine + template on a fresh Mac (checks the pinned SHA-256 either way)
+  install_wrapper_atomically "$TEMPLATE_ARCHIVE" "$ENGINE_ARCHIVE" "$TEMPLATE" "$bottle" "$APP_CACHE" \
+    || fail "Could not create the bottle."
+  bottle_plist="$bottle/Contents/Info.plist"
+  plist_set "$bottle_plist" D3DMETAL integer 1
+  plist_set "$bottle_plist" SteamyAutoGraphics integer 1
+  plist_set "$bottle_plist" LSUIElement bool true
+  plist_set "$bottle_plist" CFBundleName string "$bottle_name"
+  plist_set "$bottle_plist" CFBundleIdentifier string "local.macsteam.bottle.$(/usr/bin/uuidgen)"
+  # The launcher sometimes stays open after creating the prefix (seen on external drives), so
+  # wait for the prefix and for Wine to go idle, then close it ourselves.
+  "$bottle/Contents/MacOS/Sikarugir" WSS-wineprefixcreate >/dev/null 2>&1 &
+  prefix_pid=$!
+  for _ in {1..600}; do
+    /bin/kill -0 "$prefix_pid" 2>/dev/null || break
+    if [[ -f "$bottle/Contents/SharedSupport/prefix/system.reg" && -d "$bottle/Contents/drive_c/windows" ]] \
+      && ! /bin/ps -axo command= | /usr/bin/awk -v p="$bottle/Contents/SharedSupport/wine" 'index($0, p) && !/awk/ { f = 1 } END { exit !f }'; then  # awk reads all input (no SIGPIPE) and skips its own argv
+      /bin/sleep 2
+      /bin/kill -TERM "$prefix_pid" 2>/dev/null || true
+      break
+    fi
+    /bin/sleep 1
+  done
+  /bin/kill -TERM "$prefix_pid" 2>/dev/null || true  # still open after 10 min: don't wait on it forever
+  wait "$prefix_pid" 2>/dev/null || true
+  [[ -d "$bottle/Contents/drive_c/windows" ]] || fail "The Windows environment could not be created."
+  "$bottle/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
+  if [[ "$bottle" != "$bottle_link" ]]; then
+    /bin/mkdir -p "${bottle_link%/*}"
+    /bin/ln -s "$bottle" "$bottle_link" || fail "Could not link the bottle into Applications."
+  fi
+  printf '@@BOTTLE|%s\n' "$bottle_link"
+  exit 0
+fi
+
+acquire_setup_lock
+
+prepare_engine
 
 phase "wrapper"
 message_key creating_wrapper
