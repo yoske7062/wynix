@@ -493,6 +493,7 @@ enum SteamGovernor {
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         ps.waitUntilExit()
         var client: [pid_t] = [], helpers: [pid_t] = [], games: [pid_t] = []
+        var mainHelper: pid_t?
         var gameRunning = false
         for line in output.lowercased().split(separator: "\n") {
             let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
@@ -500,11 +501,17 @@ enum SteamGovernor {
             let args = parts[1]
             if args.contains("steamapps\\common\\") { gameRunning = true; games.append(pid) }
             else if args.contains("\\steam.exe") { client.append(pid) }
-            else if args.contains("steamwebhelper.exe") || args.contains("steamservice.exe") { helpers.append(pid) }
+            else if args.contains("steamwebhelper.exe") || args.contains("steamservice.exe") {
+                helpers.append(pid)
+                if args.contains("steamwebhelper.exe"), !args.contains("--type=") { mainHelper = pid }  // the UI process
+            }
         }
         // Steam starts the game, so a game would inherit Steam's background band: lift it, once per pid.
         for pid in games where !boosted.contains(pid) { if taskpolicy("-B", pid) { boosted.insert(pid) } }
         boosted.formIntersection(games)
+        if let c = client.first { if lastClient?.pid != c { lastClient = (c, Date()) } } else { lastClient = nil }
+        let steamSettled = lastClient.map { Date().timeIntervalSince($0.since) > 120 } ?? false  // past login/update restarts
+        quitSteamIfWindowClosed(mainHelper: mainHelper, steamRunning: steamSettled, gameRunning: gameRunning)
         if wasGameRunning && !gameRunning {  // game over (Steam stays open): give Chrome & co. their CPU back
             DispatchQueue.main.async { MainActor.assumeIsolated { GameModeBooster.shared.release() } }
         }
@@ -515,6 +522,29 @@ enum SteamGovernor {
             if helpers.contains(pid) { _ = taskpolicy("-B", pid) }  // game over: UI back to normal
             lowered.remove(pid)  // or the process is gone
         }
+    }
+
+    /// Steam's window X only closes its UI process (steamwebhelper). Steam.exe stays alive in the
+    /// hidden tray, takes the exit for a crash and restarts the UI ~5 s later: the window "reopens
+    /// by itself" (measured 2026-11-19). On a Mac, closing the window means quit, so when the UI
+    /// process is replaced and no game is running, stop Steam properly. A UI that lived under 30 s
+    /// (login, update restarts) is left alone.
+    nonisolated(unsafe) private static var lastHelper: (pid: pid_t, since: Date)?
+    nonisolated(unsafe) private static var lastClient: (pid: pid_t, since: Date)?
+    nonisolated private static func quitSteamIfWindowClosed(mainHelper: pid_t?, steamRunning: Bool, gameRunning: Bool) {
+        defer {
+            if let h = mainHelper { if lastHelper?.pid != h { lastHelper = (h, Date()) } } else { lastHelper = nil }
+        }
+        guard steamRunning, !gameRunning, let last = lastHelper, mainHelper != last.pid,
+              Date().timeIntervalSince(last.since) > 30,
+              let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { return }
+        let stop = Process()
+        stop.executableURL = URL(fileURLWithPath: "/bin/bash")
+        stop.arguments = [script, "stop"]
+        stop.standardOutput = FileHandle.nullDevice
+        stop.standardError = FileHandle.nullDevice
+        try? stop.run()
+        stop.waitUntilExit()
     }
 
     nonisolated private static func taskpolicy(_ flag: String, _ pid: pid_t) -> Bool {

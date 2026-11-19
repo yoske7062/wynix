@@ -410,6 +410,14 @@ if [[ "${1:-setup}" == "autorun-off" ]]; then
 fi
 
 if [[ "${1:-setup}" == "check" ]]; then
+  # Shortcuts made by older versions carry an old GameLauncher: refresh the ones we own.
+  for shortcut in "$GAME_SHORTCUTS_DIR"/*.app; do
+    [[ -f "$shortcut/Contents/.macsteamsetup-shortcut-owner" && -x "$shortcut/Contents/MacOS/GameLauncher" ]] || continue
+    /usr/bin/cmp -s "$SCRIPT_DIR/game_launcher.sh" "$shortcut/Contents/MacOS/GameLauncher" && continue
+    /usr/bin/ditto "$SCRIPT_DIR/game_launcher.sh" "$shortcut/Contents/MacOS/GameLauncher" \
+      && /bin/chmod +x "$shortcut/Contents/MacOS/GameLauncher" \
+      && /usr/bin/codesign --force --deep --sign - "$shortcut" >/dev/null 2>&1 || true
+  done
   check_state
   exit 0
 fi

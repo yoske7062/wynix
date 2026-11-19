@@ -197,7 +197,7 @@ fake_wrapper_pid=$!
   "$wrapper/Contents" 'C:\Program Files (x86)\Steam\Steam.exe' &
 fake_steam_pid=$!
 /bin/sleep 0.1
-"$shortcut/Contents/MacOS/GameLauncher"
+WYNIX_SHORTCUT_NO_APP=1 "$shortcut/Contents/MacOS/GameLauncher"  # fallback path (WYNIX removed)
 assert_contains "$(<"$HOME/wss-installer-argument")" '/Contents/Resources/LaunchGame.bat'
 /bin/kill "$fake_wrapper_pid" "$fake_steam_pid"
 wait "$fake_wrapper_pid" 2>/dev/null || true
