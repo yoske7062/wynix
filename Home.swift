@@ -295,7 +295,7 @@ struct SettingsView: View {
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
             Link("Support WYNIX on Ko-fi ☕ (optional, nothing is locked)", destination: URL(string: "https://ko-fi.com/wynix")!)
-            Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.vercel.app/legal.html")!)
+            Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.me/legal.html")!)
 
             Section("Help") {
                 HelpItem("Home", "Game stores and your bottles. Press Set Up Steam once, then Open it and sign in with your normal account.")

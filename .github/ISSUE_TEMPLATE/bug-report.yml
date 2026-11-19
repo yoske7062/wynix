@@ -8,13 +8,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve Mac Steam Setup. 한국어와 English 모두 괜찮습니다.
+        Thanks for helping improve WYNIX. 한국어와 English 모두 괜찮습니다.
 
   - type: input
     id: version
     attributes:
-      label: Mac Steam Setup version / 앱 버전
-      placeholder: v0.10-beta.1
+      label: WYNIX version / 앱 버전
+      placeholder: 0.21 (build 21)
     validations:
       required: true
 

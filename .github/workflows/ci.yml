@@ -24,19 +24,19 @@ jobs:
 
       - name: Verify app
         run: |
-          codesign --verify --deep --strict "build/Mac Steam Setup.app"
-          test "$(lipo -archs 'build/Mac Steam Setup.app/Contents/MacOS/MacSteamSetup')" = "arm64"
-          test -f "build/Mac Steam Setup.app/Contents/Resources/en.lproj/Localizable.strings"
-          test -f "build/Mac Steam Setup.app/Contents/Resources/ko.lproj/Localizable.strings"
-          test -f "build/Mac Steam Setup.app/Contents/Resources/localization.sh"
+          codesign --verify --deep --strict "build/WYNIX.app"
+          test "$(lipo -archs 'build/WYNIX.app/Contents/MacOS/MacSteamSetup')" = "arm64"
+          test -f "build/WYNIX.app/Contents/Resources/en.lproj/Localizable.strings"
+          test -f "build/WYNIX.app/Contents/Resources/ko.lproj/Localizable.strings"
+          test -f "build/WYNIX.app/Contents/Resources/localization.sh"
 
       - name: Verify DMG packaging
         timeout-minutes: 2
         run: |
-          bash scripts/create_dmg.sh "build/Mac Steam Setup.app" "build/Mac-Steam-Setup-test.dmg"
+          bash scripts/create_dmg.sh "build/WYNIX.app" "build/WYNIX-test.dmg"
           mount_dir="$(mktemp -d)"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "build/Mac-Steam-Setup-test.dmg"
-          test -d "$mount_dir/Mac Steam Setup.app"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "build/WYNIX-test.dmg"
+          test -d "$mount_dir/WYNIX.app"
           test "$(readlink "$mount_dir/Applications")" = "/Applications"
-          codesign --verify --deep --strict "$mount_dir/Mac Steam Setup.app"
+          codesign --verify --deep --strict "$mount_dir/WYNIX.app"
           hdiutil detach "$mount_dir"

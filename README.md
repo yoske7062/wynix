@@ -1,32 +1,32 @@
-# Mac Steam Setup: Run Windows Steam Games on Apple Silicon Mac
+# WYNIX: Run Windows Steam Games on Apple Silicon Mac
 
 **English** | [한국어](README.ko.md)
 
 <p align="center">
-  <img src="Assets/AppIcon.png" width="128" alt="Mac Steam Setup icon">
+  <img src="Assets/AppIcon.png" width="128" alt="WYNIX icon">
 </p>
 
-**A free, open-source macOS app that helps Apple Silicon Mac users install Windows Steam and launch compatible Windows-only Steam games.** It automates the Sikarugir/Wine and D3DMetal setup without requiring a Windows virtual machine or a CrossOver subscription.
+**A free, open-source macOS app that helps Apple Silicon Mac users install Windows Steam and launch compatible Windows-only Steam games.** WYNIX automates the Sikarugir/Wine and D3DMetal setup without requiring a Windows virtual machine or a CrossOver subscription.
 
-[Download DMG beta](https://github.com/heung115/mac-steam-setup/releases/download/v0.13-beta.1/Mac-Steam-Setup-v0.13-beta.1.dmg) · [Share feedback](https://github.com/heung115/mac-steam-setup/discussions) · [Report a bug or game](https://github.com/heung115/mac-steam-setup/issues/new/choose)
+[Download WYNIX](https://wynix.me/) · [Share feedback](https://github.com/yoske7062/wynix/discussions) · [Report a bug or game](https://github.com/yoske7062/wynix/issues/new/choose)
 
-[![CI](https://github.com/heung115/mac-steam-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/heung115/mac-steam-setup/actions/workflows/ci.yml) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-black) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/yoske7062/wynix/actions/workflows/ci.yml/badge.svg)](https://github.com/yoske7062/wynix/actions/workflows/ci.yml) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-black) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <img src="Assets/ManagementScreenshot.png" width="900" alt="Mac Steam Setup management screen on macOS">
+  <img src="Assets/ManagementScreenshot.png" width="900" alt="WYNIX game library and management screen on macOS">
   <br>
-  <sub>Current beta Setup & Management screen in English.</sub>
+  <sub>Current WYNIX game library and management screen in English.</sub>
 </p>
 
 ## Quick start
 
-1. Download the [Mac Steam Setup v0.13-beta.1 DMG](https://github.com/heung115/mac-steam-setup/releases/download/v0.13-beta.1/Mac-Steam-Setup-v0.13-beta.1.dmg). Other versions and the fallback ZIP are available on [GitHub Releases](https://github.com/heung115/mac-steam-setup/releases).
-2. Open the DMG and drag `Mac Steam Setup.app` onto the `Applications` folder shown beside it.
-3. Try to open `Mac Steam Setup.app` once.
+1. Download the current WYNIX build from [wynix.me](https://wynix.me/). Older versions and the fallback ZIP are available on [GitHub Releases](https://github.com/yoske7062/wynix/releases).
+2. Open the DMG and drag `WYNIX.app` onto the `Applications` folder shown beside it.
+3. Try to open `WYNIX.app` once.
 4. If macOS blocks it, go to **System Settings → Privacy & Security → Open Anyway**. This approval is only required once.
 5. Open the app, choose **Set Up Steam**, and complete the Steam installer using its default path.
 
-The current beta uses an ad-hoc signature and is not notarized by Apple. Download it only from this repository. A `.sha256` file is included with each release so you can verify the download.
+The current public build uses an ad-hoc signature and is not notarized by Apple. Download it only from [wynix.me](https://wynix.me/) or this repository. A `.sha256` file is included with each release so you can verify the download.
 
 ## Requirements and limitations
 
@@ -43,6 +43,7 @@ The current beta uses an ad-hoc signature and is not notarized by Apple. Downloa
 - Follows the macOS language automatically in English and Korean
 - Prevents duplicate installation and launch requests
 - Configures the official Sikarugir engine, Wine wrapper, D3DMetal, and Steam path
+- Provides per-game graphics recommendations, Boost, a built-in benchmark, and optional Steam pre-warming
 - Cleans up setup processes and hides the background Sikarugir Dock icon
 - Repairs the Steam login web cache when needed
 - Completely stops Windows Steam and running Windows games
@@ -51,9 +52,9 @@ The current beta uses an ad-hoc signature and is not notarized by Apple. Downloa
 
 ## How it works
 
-Releases contain only the small Mac Steam Setup app. The app downloads pinned Sikarugir engine and wrapper releases and Valve's Steam installer from their official distribution URLs when setup begins. It does not bundle Windows, Steam, Wine, D3DMetal, Sikarugir archives, or games.
+Releases contain only the small WYNIX app. The app downloads pinned Sikarugir engine and wrapper releases and Valve's Steam installer from their official distribution URLs when setup begins. It does not bundle Windows, Steam, Wine, D3DMetal, Sikarugir archives, or games.
 
-After a game is installed through Windows Steam, Mac Steam Setup can generate a small macOS app that starts Steam in the wrapper and launches the corresponding Steam App ID. The shortcut does not copy the game or Wine environment.
+After a game is installed through Windows Steam, WYNIX can generate a small macOS app that starts Steam in the wrapper and launches the corresponding Steam App ID. The shortcut does not copy the game or Wine environment.
 
 Steam's initial network check may take about a minute on some connections. An IPv6 `TIMEOUT` can also appear during an otherwise normal launch; see the [Windows Steam startup network-delay notes](docs/diagnostics/steam-startup-network-delay.md). The initial Wine updater cannot render Korean fonts correctly, so Steam is prepared in English by default. You can change the language later in Steam settings.
 
@@ -86,16 +87,16 @@ These checks verify the setup workflow, not universal game compatibility.
 
 ## Feedback and game compatibility reports
 
-- Experiences, questions, and ideas: [GitHub Discussions](https://github.com/heung115/mac-steam-setup/discussions)
-- Installation or launch problems: [bug report form](https://github.com/heung115/mac-steam-setup/issues/new?template=bug-report.yml)
-- A Windows game you tested: [game compatibility form](https://github.com/heung115/mac-steam-setup/issues/new?template=game-compatibility.yml)
+- Experiences, questions, and ideas: [GitHub Discussions](https://github.com/yoske7062/wynix/discussions)
+- Installation or launch problems: [bug report form](https://github.com/yoske7062/wynix/issues/new?template=bug-report.yml)
+- A Windows game you tested: [game compatibility form](https://github.com/yoske7062/wynix/issues/new?template=game-compatibility.yml)
 
 Successful games are worth reporting too. Before attaching a log or screenshot, remove account names, email addresses, local file paths, and other personal information.
 
 ## Project status, distribution, and license
 
-Mac Steam Setup is a non-commercial open-source prototype. This is an independent, unofficial community project and is not affiliated with, endorsed by, sponsored by, or approved by Valve Corporation, Apple Inc., or the Sikarugir project. Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation. This project does not use the Steam logo or Valve's official design assets.
+WYNIX is a non-commercial open-source project that started as a fork of Mac Steam Setup. It is an independent, unofficial community project and is not affiliated with, endorsed by, sponsored by, or approved by Valve Corporation, Apple Inc., or the Sikarugir project. Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation. This project does not use the Steam logo or Valve's official design assets.
 
-CI-built releases may contain only Mac Steam Setup. Do not include a completed `Steam.app`, the Steam client, games, Wine, D3DMetal, or Sikarugir engine and template archives. Public downloads without a Gatekeeper warning require Developer ID signing and Apple notarization; signing credentials must remain in encrypted CI secrets.
+CI-built releases may contain only WYNIX. Do not include a completed `Steam.app`, the Steam client, games, Wine, D3DMetal, or Sikarugir engine and template archives. Public downloads without a Gatekeeper warning require Developer ID signing and Apple notarization; signing credentials must remain in encrypted CI secrets.
 
 The original code in this repository is licensed under the [MIT License](LICENSE). That license does not grant rights to third-party components. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.

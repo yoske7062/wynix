@@ -1,4 +1,4 @@
-name: Build beta release
+name: Build WYNIX release
 
 on:
   push:
@@ -23,8 +23,8 @@ jobs:
 
       - name: Verify app
         run: |
-          codesign --verify --deep --strict "build/Mac Steam Setup.app"
-          test "$(lipo -archs 'build/Mac Steam Setup.app/Contents/MacOS/MacSteamSetup')" = "arm64"
+          codesign --verify --deep --strict "build/WYNIX.app"
+          test "$(lipo -archs 'build/WYNIX.app/Contents/MacOS/MacSteamSetup')" = "arm64"
           test "$(plutil -extract CFBundleShortVersionString raw Info.plist)" = "${GITHUB_REF_NAME#v}" || \
             test "v$(plutil -extract CFBundleShortVersionString raw Info.plist)" = "${GITHUB_REF_NAME%%-*}"
 
@@ -32,15 +32,15 @@ jobs:
         id: package
         timeout-minutes: 2
         run: |
-          archive="Mac-Steam-Setup-${GITHUB_REF_NAME}.zip"
-          disk_image="Mac-Steam-Setup-${GITHUB_REF_NAME}.dmg"
-          ditto -c -k --sequesterRsrc --keepParent "build/Mac Steam Setup.app" "$archive"
-          bash scripts/create_dmg.sh "build/Mac Steam Setup.app" "$disk_image"
+          archive="WYNIX-${GITHUB_REF_NAME}.zip"
+          disk_image="WYNIX-${GITHUB_REF_NAME}.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "build/WYNIX.app" "$archive"
+          bash scripts/create_dmg.sh "build/WYNIX.app" "$disk_image"
           mount_dir="$(mktemp -d)"
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$disk_image"
-          test -d "$mount_dir/Mac Steam Setup.app"
+          test -d "$mount_dir/WYNIX.app"
           test "$(readlink "$mount_dir/Applications")" = "/Applications"
-          codesign --verify --deep --strict "$mount_dir/Mac Steam Setup.app"
+          codesign --verify --deep --strict "$mount_dir/WYNIX.app"
           hdiutil detach "$mount_dir"
           shasum -a 256 "$archive" > "$archive.sha256"
           shasum -a 256 "$disk_image" > "$disk_image.sha256"
@@ -57,5 +57,5 @@ jobs:
             "$DISK_IMAGE" "$DISK_IMAGE.sha256" \
             "$ARCHIVE" "$ARCHIVE.sha256" \
             --prerelease \
-            --title "Mac Steam Setup ${GITHUB_REF_NAME}" \
+            --title "WYNIX ${GITHUB_REF_NAME}" \
             --notes-file docs/BETA_RELEASE_NOTES.md
