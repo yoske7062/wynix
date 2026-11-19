@@ -836,6 +836,12 @@ final class BottleStore: ObservableObject {
         setEnvironment(bottle, "DXVK_FRAME_RATE", "60")
         // This DXVK build (dxvk-macOS-async) compiles shaders in the background: fewer stutters.
         setEnvironment(bottle, "DXVK_ASYNC", "1")
+        // MoltenVK (DXVK's Metal layer): compile shaders on all cores at once (off by default; macOS
+        // 13.3+), so first-time effects stutter less. And keep Metal fast math on, MoltenVK's own
+        // default, which the template's FASTMATH = 0 can switch off.
+        // https://github.com/KhronosGroup/MoltenVK/blob/v1.2.10/Docs/MoltenVK_Configuration_Parameters.md
+        setEnvironment(bottle, "MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", "1")
+        setPlist(bottle, ["FASTMATH": 1])
         writeDXMTConfig(bottle, boost: boost(bottle))
         // Steam bottle: MetalFX upscaling is the default; only an explicit off (key = 0) or DXMT Boost skips it.
         if bottle.isSteam && plistDictionary(bottle)["WynixUpscaleDX12"] == nil && !boost(bottle) {
@@ -1460,7 +1466,7 @@ final class BottleStore: ObservableObject {
     // MARK: Optimized state
 
     /// Bump when `optimizeForGaming` gains settings, so bottles get offered the new ones.
-    static let optimizeVersion = 5
+    static let optimizeVersion = 6
 
     func isOptimized(_ bottle: Bottle) -> Bool {
         ((plistDictionary(bottle)["SteamyOptimized"] as? NSNumber)?.intValue ?? 0) >= Self.optimizeVersion
