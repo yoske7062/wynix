@@ -462,6 +462,63 @@ final class GameModeBooster {
     }
 }
 
+/// Keeps Steam out of the game's way. Every 5 s while WYNIX runs:
+/// - Steam.exe (downloads, unpacking, updates) always runs in the background band: macOS keeps it
+///   on the efficiency cores, so a download no longer heats the Mac (it finishes a bit slower).
+/// - While a game runs, Steam's UI and service join it, so the game gets the performance cores.
+/// - With no game, the UI goes back to normal so the Steam window stays smooth.
+/// A game can't be raised above normal without admin rights; lowering everything else is the lever.
+enum SteamGovernor {
+    nonisolated private static let work = DispatchQueue(label: "wynix.steamgovernor", qos: .utility)
+    nonisolated(unsafe) private static var lowered: Set<pid_t> = []
+    nonisolated(unsafe) private static var timer: DispatchSourceTimer?
+
+    static func start() {
+        let t = DispatchSource.makeTimerSource(queue: work)
+        t.schedule(deadline: .now() + 2, repeating: 5, leeway: .seconds(1))
+        t.setEventHandler { tick() }
+        t.resume()
+        timer = t
+    }
+
+    nonisolated private static func tick() {
+        let ps = Process()
+        let pipe = Pipe()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-axo", "pid=,args="]
+        ps.standardOutput = pipe
+        guard (try? ps.run()) != nil else { return }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        ps.waitUntilExit()
+        var client: [pid_t] = [], helpers: [pid_t] = []
+        var gameRunning = false
+        for line in output.lowercased().split(separator: "\n") {
+            let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, let pid = pid_t(parts[0]) else { continue }
+            let args = parts[1]
+            if args.contains("steamapps\\common\\") { gameRunning = true }
+            else if args.contains("\\steam.exe") { client.append(pid) }
+            else if args.contains("steamwebhelper.exe") || args.contains("steamservice.exe") { helpers.append(pid) }
+        }
+        let want = Set(client + (gameRunning ? helpers : []))
+        for pid in want.subtracting(lowered) where taskpolicy("-b", pid) { lowered.insert(pid) }
+        for pid in lowered.subtracting(want) {
+            if helpers.contains(pid) { _ = taskpolicy("-B", pid) }  // game over: UI back to normal
+            lowered.remove(pid)  // or the process is gone
+        }
+    }
+
+    nonisolated private static func taskpolicy(_ flag: String, _ pid: pid_t) -> Bool {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/taskpolicy")
+        task.arguments = [flag, "-p", String(pid)]
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return false }
+        task.waitUntilExit()
+        return task.terminationStatus == 0
+    }
+}
+
 /// One expandable entry in Settings > Help.
 struct HelpItem: View {
     let title: String

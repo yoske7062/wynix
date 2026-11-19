@@ -1097,6 +1097,7 @@ enum Prewarm {
 /// On quit, offer to close Steam and Windows programs so nothing keeps running in the background.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SteamGovernor.start()
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in Prewarm.appHidden() }
         nc.addObserver(forName: NSApplication.didUnhideNotification, object: nil, queue: .main) { _ in Prewarm.appUnhidden() }

@@ -697,7 +697,7 @@ static void hudRow(NSMutableAttributedString *s, NSString *name, NSString *value
 }
 
 static void hudUpdate(void) {
-    static uint64_t lastFrames, lastNs, lastSlowNs;
+    static uint64_t lastFrames, lastNs;
     static double fps, cpu = -1, gpu = -1, mem = -1, memTotal, temp = -1;
     static int ticks;
     CALayer *host = gHudHost;
@@ -715,12 +715,13 @@ static void hudUpdate(void) {
         fps = 0;
         return;
     }
-    if (now - lastSlowNs > 500000000ull) {  // system readings twice a second
-        lastSlowNs = now;
-        cpu = cpuPercent(); gpu = gpuPercent(); mem = memoryUsedGB(&memTotal);
-    }
-    double t = chipTemperature();  // every tick (10x a second): a sensor read is microseconds
+    // Every reading on every tick (10x a second); each costs microseconds. Light smoothing so the
+    // numbers move fast without jittering.
+    double c = cpuPercent(), g = gpuPercent(), t = chipTemperature();
+    cpu = c < 0 ? cpu : cpu < 0 ? c : cpu * 0.5 + c * 0.5;
+    gpu = g < 0 ? gpu : gpu < 0 ? g : gpu * 0.5 + g * 0.5;
     temp = t > 0 ? t : -1;
+    mem = memoryUsedGB(&memTotal);
     CGFloat size = 11;
     NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightMedium];
     NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold];
