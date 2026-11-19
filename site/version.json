@@ -1,1 +1,1 @@
-{"version":"0.25","build":25,"url":"https://wynix.app/api/dl","notes":"Install Epic, GOG, EA, Ubisoft or Battle.net without setting up Steam first."}
+{"version":"0.26","build":26,"url":"https://wynix.app/api/dl","notes":"Closing Steam now actually closes it (no more reopening by itself). Dock game shortcuts close Steam after you play."}
