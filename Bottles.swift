@@ -1271,17 +1271,25 @@ final class BottleStore: ObservableObject {
     }
 
     /// Optimize / Play: move to 4 unless the user chose 3.0. Silent; skipped while Wine runs (next time).
-    func applyD3DMetalPreference(_ bottle: Bottle) {
-        guard !wantsD3DMetal3(bottle) else { return }
-        guard D3DMetalSwap.stagedAvailable else { downloadD3DMetal4(then: bottle); return }
+    /// `then` runs on main once the bottle's renderer is settled: Play waits for it so Wine never
+    /// starts while the framework is half copied.
+    func applyD3DMetalPreference(_ bottle: Bottle, then: @escaping @MainActor () -> Void = {}) {
+        guard !wantsD3DMetal3(bottle) else { then(); return }
+        guard D3DMetalSwap.stagedAvailable else { downloadD3DMetal4(then: bottle); then(); return }
         let is4 = d3dmetalVersion(bottle)?.hasPrefix("4") == true
-        if is4 { setEnvironment(bottle, "D3DM_MAX_FPS", "60"); return }
+        if is4 { setEnvironment(bottle, "D3DM_MAX_FPS", "60"); then(); return }
         // The swap copies the whole framework: off the main thread, or Play beachballs.
         let renderer = rendererDir(bottle)
+        let showing = activity == nil
+        if showing { activity = "Switching to D3DMetal 4…" }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard !Self.windowsProgramsRunning,
-                  (try? D3DMetalSwap.swap(renderer: renderer, staged: D3DMetalSwap.staged, to4: true)) != nil else { return }
-            DispatchQueue.main.async { self?.setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+            let ok = !Self.windowsProgramsRunning
+                && (try? D3DMetalSwap.swap(renderer: renderer, staged: D3DMetalSwap.staged, to4: true)) != nil
+            DispatchQueue.main.async {
+                if showing { self?.activity = nil }
+                if ok { self?.setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+                then()
+            }
         }
     }
 

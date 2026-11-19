@@ -749,10 +749,13 @@ struct GameLibraryView: View {
 
     private func startPlay(_ game: SteamGame, status: String? = nil) {
         // Renderer follows the bottle as it is now (Boost already written for this game if applied).
-        if !model.isSteamRunning, let bottle = steamBottle { store.applyD3DMetalPreference(bottle) }
-        let renderer = steamBottle.map { store.boost($0) ? "dxmt" : "d3dmetal" } ?? ""
-        model.play(game, renderer: renderer, status: status)
-        GameModeBooster.shared.engage { [model] in model.message = $0 }
+        let go = { [model, store, steamBottle] in
+            let renderer = steamBottle.map { store.boost($0) ? "dxmt" : "d3dmetal" } ?? ""
+            model.play(game, renderer: renderer, status: status)
+            GameModeBooster.shared.engage { [model] in model.message = $0 }
+        }
+        // Wait for a pending D3DMetal switch, so Wine never starts on a half-copied framework.
+        if !model.isSteamRunning, let bottle = steamBottle { store.applyD3DMetalPreference(bottle, then: go) } else { go() }
         if let b = steamBottle, store.benchmarking(b) {
             benchGame = (game.name, Date())
             watchGameEnd(game, bottle: b)
