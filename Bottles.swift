@@ -352,6 +352,13 @@ final class LockedData: @unchecked Sendable {
     private var buffer = Data()
     func append(_ d: Data) { lock.lock(); buffer.append(d); lock.unlock() }
     var data: Data { lock.lock(); defer { lock.unlock() }; return buffer }
+    func drain() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        let result = buffer
+        buffer.removeAll(keepingCapacity: true)
+        return result
+    }
 }
 
 /// Swaps a bottle's renderer/d3dmetal between Apple's D3DMetal 3.0 (shipped) and 4.0 beta (staged).

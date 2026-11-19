@@ -228,19 +228,26 @@ final class InstallerModel: ObservableObject {
         task.standardError = pipe
         task.environment = Self.taskEnvironment()
 
+        let output = LockedData()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async { self?.consumeChunk(text) }
+            guard !data.isEmpty else { return }
+            output.append(data)
+            DispatchQueue.main.async {
+                let data = output.drain()
+                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+                self?.consumeChunk(text)
+            }
         }
 
         task.terminationHandler = { [weak self] finished in
             pipe.fileHandleForReading.readabilityHandler = nil
             let remainingData = pipe.fileHandleForReading.readDataToEndOfFile()
-            let remainingText = String(data: remainingData, encoding: .utf8) ?? ""
+            output.append(remainingData)
             DispatchQueue.main.async {
-                if !remainingText.isEmpty {
-                    self?.consumeChunk(remainingText)
+                let data = output.drain()
+                if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                    self?.consumeChunk(text)
                 }
                 if self?.pendingOutput.isEmpty == false {
                     self?.consumeLine(self?.pendingOutput ?? "")
