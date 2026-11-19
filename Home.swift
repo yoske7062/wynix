@@ -471,6 +471,7 @@ final class GameModeBooster {
 enum SteamGovernor {
     nonisolated private static let work = DispatchQueue(label: "wynix.steamgovernor", qos: .utility)
     nonisolated(unsafe) private static var lowered: Set<pid_t> = []
+    nonisolated(unsafe) private static var boosted: Set<pid_t> = []
     nonisolated(unsafe) private static var timer: DispatchSourceTimer?
 
     static func start() {
@@ -490,16 +491,19 @@ enum SteamGovernor {
         guard (try? ps.run()) != nil else { return }
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         ps.waitUntilExit()
-        var client: [pid_t] = [], helpers: [pid_t] = []
+        var client: [pid_t] = [], helpers: [pid_t] = [], games: [pid_t] = []
         var gameRunning = false
         for line in output.lowercased().split(separator: "\n") {
             let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
             guard parts.count == 2, let pid = pid_t(parts[0]) else { continue }
             let args = parts[1]
-            if args.contains("steamapps\\common\\") { gameRunning = true }
+            if args.contains("steamapps\\common\\") { gameRunning = true; games.append(pid) }
             else if args.contains("\\steam.exe") { client.append(pid) }
             else if args.contains("steamwebhelper.exe") || args.contains("steamservice.exe") { helpers.append(pid) }
         }
+        // Steam starts the game, so a game would inherit Steam's background band: lift it, once per pid.
+        for pid in games where !boosted.contains(pid) { if taskpolicy("-B", pid) { boosted.insert(pid) } }
+        boosted.formIntersection(games)
         let want = Set(client + (gameRunning ? helpers : []))
         for pid in want.subtracting(lowered) where taskpolicy("-b", pid) { lowered.insert(pid) }
         for pid in lowered.subtracting(want) {

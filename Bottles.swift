@@ -715,7 +715,9 @@ final class BottleStore: ObservableObject {
         if needsDylib(bottle) {  // a missing injected dylib would abort Wine
             if !ensureUpscaler(bottle) {  // only for this launch; the setting stays, a later restore re-adds it
                 setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", nil)
-                alertMessage = "Boost (MetalFX upscaling) is off for this launch of \(bottle.name): its files could not be restored."
+                if upscaleDX12(bottle) || benchmarking(bottle) || hudOn(bottle) {  // silent when nothing visible depends on it
+                    alertMessage = "Boost, the HUD and benchmark are off for this launch of \(bottle.name): their files could not be restored."
+                }
             } else if let path = upscalerURL(bottle)?.path, environment(bottle)["DYLD_INSERT_LIBRARIES"] == nil {
                 setEnvironment(bottle, "DYLD_INSERT_LIBRARIES", path)
             }
@@ -1204,7 +1206,7 @@ final class BottleStore: ObservableObject {
     /// Older versions turned on Apple's Metal HUD / DXVK's counter; WYNIX draws its own now.
     func removeAppleHUD(_ bottle: Bottle) {
         let plist = plistDictionary(bottle)
-        if (plist["METAL_HUD"] as? NSNumber)?.boolValue == true || plist["WynixHUD"] != nil {
+        if (plist["METAL_HUD"] as? NSNumber)?.boolValue == true || (plist["WynixHUD"] as? String)?.isEmpty == false {
             setPlist(bottle, ["METAL_HUD": 0, "WynixHUD": ""])
         }
         let env = environment(bottle)
@@ -1352,10 +1354,13 @@ final class BottleStore: ObservableObject {
               let dest = upscalerURL(bottle) else { return false }
         let fm = FileManager.default
         if fm.contentsEqual(atPath: src.path, andPath: dest.path) { return true }
+        // Copy beside it, then swap in one rename: a Wine process starting meanwhile never sees it missing.
+        let tmp = dest.deletingLastPathComponent().appendingPathComponent(".wynix_upscale.dylib.new")
         do {
-            try? fm.removeItem(at: dest)
-            try fm.copyItem(at: src, to: dest)
-            removexattr(dest.path, "com.apple.quarantine", 0)
+            try? fm.removeItem(at: tmp)
+            try fm.copyItem(at: src, to: tmp)
+            removexattr(tmp.path, "com.apple.quarantine", 0)
+            guard Darwin.rename(tmp.path, dest.path) == 0 else { try? fm.removeItem(at: tmp); return false }
             return true
         } catch {
             return false

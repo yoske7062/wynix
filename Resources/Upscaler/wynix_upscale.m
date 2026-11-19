@@ -52,6 +52,7 @@
 #include <time.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <sys/resource.h>
 #include <pthread/qos.h>
 #include <sys/sysctl.h>
 #include <mach/mach.h>
@@ -618,7 +619,30 @@ static void onImageAdded(const struct mach_header *mh, intptr_t slide) {
 // fullscreen. Shown while drive_c/steamy/hud exists in this bottle (WYNIX creates or removes it,
 // so the toggle applies live). Steam's own windows never get it.
 static char *gHudFlag;
-static BOOL gHudSkip;
+static BOOL gHudSkip;  // set lazily by isSteamProcess(): Wine rewrites argv[0] after our constructor
+
+// Reads this process's current argv[0] (what `ps` shows, e.g. C:\...\steam.exe) on the first frame.
+static BOOL isSteamProcess(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached;
+    int mib[3] = { CTL_KERN, KERN_PROCARGS2, getpid() };
+    size_t size = 0;
+    cached = 0;
+    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0 || size < sizeof(int)) return cached;
+    char *buf = malloc(size);
+    if (buf && sysctl(mib, 3, buf, &size, NULL, 0) == 0) {
+        char *p = buf + sizeof(int), *end = buf + size;
+        while (p < end && *p) p++;   // skip exec path
+        while (p < end && !*p) p++;  // skip padding
+        if (p < end) {
+            NSString *a0 = [[NSString alloc] initWithBytes:p length:strnlen(p, end - p) encoding:NSUTF8StringEncoding].lowercaseString;
+            cached = [a0 containsString:@"steam.exe"] || [a0 containsString:@"steamwebhelper"] || [a0 containsString:@"steamservice"];
+        }
+    }
+    free(buf);
+    gHudSkip = cached;
+    return cached;
+}
 static _Atomic uint64_t gHudFrames;
 static __weak CALayer *gHudHost;
 static CALayer *gHudLayer;       // dark rounded box
@@ -630,11 +654,12 @@ static BOOL isWineView(CAMetalLayer *layer) {
 }
 
 static void hudTick(CAMetalLayer *layer) {
-    if (!gHudFlag || gHudSkip || !isWineView(layer)) return;
+    if (!gHudFlag || !isWineView(layer) || isSteamProcess()) return;
     atomic_fetch_add_explicit(&gHudFrames, 1, memory_order_relaxed);
-    if (gHudHost != layer) {  // first frame of this window: remember it, attach on the main thread
+    CALayer *host = gHudHost;
+    // Several Wine windows can present (launcher + game): stick to the biggest one, never alternate.
+    if (host != layer && (!host || layer.bounds.size.width * layer.bounds.size.height > host.bounds.size.width * host.bounds.size.height)) {
         gHudHost = layer;
-        dispatch_async(dispatch_get_main_queue(), ^{ [gHudLayer removeFromSuperlayer]; });
     }
 }
 
@@ -765,9 +790,6 @@ static void hudInit(void) {
     if (!f) return;
     NSString *contents = [[NSString alloc] initWithBytes:info.dli_fname length:f - info.dli_fname encoding:NSUTF8StringEncoding];
     gHudFlag = strdup([contents stringByAppendingPathComponent:@"drive_c/steamy/hud"].fileSystemRepresentation);
-    NSString *exe = NSProcessInfo.processInfo.arguments.firstObject.lowercaseString ?: @"";
-    gHudSkip = [exe containsString:@"steam.exe"] || [exe containsString:@"steamwebhelper"] || [exe containsString:@"steamservice"];
-    if (gHudSkip) return;
     static dispatch_source_t timer;
     timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), NSEC_PER_SEC / 10, NSEC_PER_SEC / 50);
@@ -781,11 +803,12 @@ static void hudInit(void) {
 // process is marked as the foreground app. Never for Steam's own processes.
 static void gameBoostTick(CAMetalLayer *layer) {
     static _Thread_local BOOL threadDone;
-    if (threadDone || gHudSkip || !isWineView(layer)) return;
+    if (threadDone || !isWineView(layer) || isSteamProcess()) return;
     threadDone = YES;
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        setpriority(PRIO_DARWIN_PROCESS, 0, 0);  // leave the background band inherited from a lowered Steam
         task_category_policy_data_t p = { TASK_FOREGROUND_APPLICATION };
         task_policy_set(mach_task_self(), TASK_CATEGORY_POLICY, (task_policy_t)&p, TASK_CATEGORY_POLICY_COUNT);
         LOG("game priority: render thread user-interactive, task foreground");

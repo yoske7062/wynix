@@ -1126,10 +1126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Stopping Wine can take many seconds; doing it on the main thread showed the beachball.
         // Hide the windows now and finish the cleanup in the background.
         NSApp.windows.forEach { $0.orderOut(nil) }
+        var replied = false
+        let finish = { if !replied { replied = true; NSApp.reply(toApplicationShouldTerminate: true) } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: finish)  // never hang on a stuck Wine
         DispatchQueue.global(qos: .userInitiated).async {
             Prewarm.stopIfStarted(wait: true)  // only a Steam that pre-warm started
             if closeAll { BottleStore.closeAllWindowsPrograms() }
-            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+            DispatchQueue.main.async(execute: finish)
         }
         return .terminateLater
     }
