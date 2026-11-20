@@ -1171,10 +1171,19 @@ final class BottleStore: ObservableObject {
                     guard p.terminationStatus == 0 else { throw NSError(domain: "WynixEngine", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "\(tool) failed (\(p.terminationStatus))."]) }
                     return String(data: data, encoding: .utf8) ?? ""
                 }
-                let tar = temp.appendingPathComponent("Libraries.tar.gz")
-                _ = try run("/usr/bin/curl", ["-fsSL", "--retry", "3", "-o", tar.path, url])
-                let sum = try run("/usr/bin/shasum", ["-a", "256", tar.path]).split(separator: " ").first.map(String.init)
-                guard sum == expected else { throw NSError(domain: "WynixEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download does not match the expected checksum."]) }
+                func status(_ text: String) { DispatchQueue.main.async { self?.activity = text } }
+                func sha(_ f: URL) -> String? { try? run("/usr/bin/shasum", ["-a", "256", f.path]).split(separator: " ").first.map(String.init) }
+                // A finished download with the right checksum is reused (and kept for the next try).
+                let tar = tempBase.appendingPathComponent("wine11-Libraries.tar.gz")
+                if !(fm.fileExists(atPath: tar.path) && sha(tar) == expected) {
+                    status("Downloading Wine 11 (beta), about 480 MB…")
+                    try? fm.removeItem(at: tar)
+                    _ = try run("/usr/bin/curl", ["-fsSL", "--retry", "3", "-o", tar.path, url])
+                    status("Checking the download…")
+                    guard sha(tar) == expected else { try? fm.removeItem(at: tar); throw NSError(domain: "WynixEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download does not match the expected checksum."]) }
+                }
+                defer { try? fm.removeItem(at: tar) }
+                status("Unpacking Wine 11 (beta)…")
                 let unpacked = temp.appendingPathComponent("x")
                 try fm.createDirectory(at: unpacked, withIntermediateDirectories: true)
                 _ = try run("/usr/bin/tar", ["-xzf", tar.path, "-C", unpacked.path])
@@ -1186,6 +1195,7 @@ final class BottleStore: ObservableObject {
                 let dxmtVersion = (try? String(contentsOf: renderer.appendingPathComponent("dxmt/version"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
                 try (dxmtVersion ?? "unknown").write(to: engineDir.appendingPathComponent("dxmt-version"), atomically: true, encoding: .utf8)
                 try "Wine 11 (beta)".write(to: engineDir.appendingPathComponent("title"), atomically: true, encoding: .utf8)
+                status("Preparing the DXMT and D3DMetal variants…")
                 try Self.buildEngineVariants(engineDir: engineDir, renderer: renderer)
             } catch {
                 failure = error.localizedDescription
@@ -2158,6 +2168,15 @@ struct BottleSidePanel: View {
                         }
                         .labelsHidden()
                         .frame(width: 170)
+                    }
+                    if !store.engines.contains(where: { $0.id == BottleStore.wine11ID }) {
+                        Button {
+                            store.installWine11(from: bottle)
+                        } label: {
+                            Label("Install Wine 11 (beta)", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(store.activity != nil)
                     }
                     SettingRow("Graphics") {
                         Picker("", selection: Binding(
