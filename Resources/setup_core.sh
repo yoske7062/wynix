@@ -186,8 +186,12 @@ steam_disable_autorun() {
       run = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run\]/)
       valve = ($0 ~ /^\[Software\\\\Valve\\\\Steam\]/)
     }
+    /^\[/ { pol = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\Explorer\]/); if (pol) seen = 1 }
     run && /^"Steam"=/ { next }
     valve && /^"SuppressAutoRun"=/ { print "\"SuppressAutoRun\"=dword:00000001"; next }
+    pol && /^"NoTrayItemsDisplay"=/ { next }
     { print }
+    pol && /^\[/ { print "\"NoTrayItemsDisplay\"=dword:00000001" }
+    END { if (!seen) printf "\n[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\Explorer] 1\n\"NoTrayItemsDisplay\"=dword:00000001\n" }
   ' "$reg" > "$tmp" && /bin/mv "$tmp" "$reg"
 }

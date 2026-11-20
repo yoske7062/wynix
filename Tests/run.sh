@@ -149,6 +149,7 @@ steam_disable_autorun "$reg_dir/user.reg"
 /usr/bin/grep -q '^"Other"="x"' "$reg_dir/user.reg" || fail "other Run entries must stay"
 /usr/bin/grep -q '^"SuppressAutoRun"=dword:00000001' "$reg_dir/user.reg" || fail "SuppressAutoRun should be 1"
 /usr/bin/grep -q '^"Language"="english"' "$reg_dir/user.reg" || fail "other Steam values must stay"
+/usr/bin/grep -q '^"NoTrayItemsDisplay"=dword:00000001' "$reg_dir/user.reg" || fail "tray icons should be hidden"
 /bin/rm -rf "$reg_dir"
 
 # Failed downloads must not leave .part files, and fetch() checks free space first.

@@ -181,6 +181,8 @@ steam_bottle_reg() {
 steam_remove_autorun_live() {
   steam_bottle_reg delete 'HKCU\Software\Microsoft\Windows\CurrentVersion\Run' /v Steam /f
   steam_bottle_reg add 'HKCU\Software\Valve\Steam' /v SuppressAutoRun /t REG_DWORD /d 1 /f
+  # Wine's tray icons land in the macOS menu bar and can't be clicked there (explorer reads this at start).
+  steam_bottle_reg add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer' /v NoTrayItemsDisplay /t REG_DWORD /d 1 /f
 }
 
 # Waits in the background for Steam to finish starting, then removes its auto-start entry.
