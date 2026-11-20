@@ -154,7 +154,7 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(BottleStore.linkTarget(for: e11, dxmt: false)?.path == e11dir + "/variants/d3dmetal/wine", "d3dmetal target")
         precondition(BottleStore.linkTarget(for: eOld, dxmt: true)?.path == eOld.url?.path, "no variants: engine wine")
         precondition(BottleStore.linkTarget(for: BottleStore.bundledEngine, dxmt: true) == nil, "bundled has no link")
-        // buildEngineVariants with fake files: dxmt gets the engine's DXMT, d3dmetal the bottle's renderer.
+        // buildEngineVariants with fake files: each variant gets its renderer folder of the bottle.
         let bdir = eroot.appendingPathComponent("build/wine-11.19")
         func putB(_ rel: String, _ text: String) {
             let u = bdir.appendingPathComponent(rel)
@@ -164,17 +164,17 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         putB("wine/bin/wine", "w"); try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bdir.appendingPathComponent("wine/bin/wine").path)
         putB("wine/lib/wine/x86_64-windows/d3d11.dll", "stock"); putB("wine/lib/wine/x86_64-unix/winemetal.so", "stock-so")
         putB("wine/lib/wine/i386-windows/d3d11.dll", "stock32")
-        putB("dxmt/x64/d3d11.dll", "dxmt64"); putB("dxmt/x32/d3d11.dll", "dxmt32")
-        let rend = eroot.appendingPathComponent("build/renderer/d3dmetal")
-        for (rel, t) in [("wine/x86_64-windows/d3d12.dll", "d3dm"), ("wine/x86_64-unix/libd3dshared.so", "u"), ("external/libd3dshared.dylib", "dylib")] {
+        let rend = eroot.appendingPathComponent("build/renderer")
+        for (rel, t) in [("dxmt/wine/x86_64-windows/d3d11.dll", "dxmt64"), ("dxmt/wine/x86_64-unix/winemetal.so", "dxmt-so"),
+                         ("d3dmetal/wine/x86_64-windows/d3d12.dll", "d3dm"), ("d3dmetal/wine/x86_64-unix/libd3dshared.so", "u"), ("d3dmetal/external/libd3dshared.dylib", "dylib")] {
             let u = rend.appendingPathComponent(rel)
             try! fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
             try! t.write(to: u, atomically: true, encoding: .utf8)
         }
-        try! BottleStore.buildEngineVariants(engineDir: bdir, d3dmetalRenderer: rend)
+        try! BottleStore.buildEngineVariants(engineDir: bdir, renderer: rend)
         func read(_ rel: String) -> String? { try? String(contentsOf: bdir.appendingPathComponent(rel), encoding: .utf8) }
-        precondition(read("variants/dxmt/wine/lib/wine/x86_64-windows/d3d11.dll") == "dxmt64" && read("variants/dxmt/wine/lib/wine/i386-windows/d3d11.dll") == "dxmt32", "dxmt files")
-        precondition(read("variants/dxmt/wine/lib/wine/x86_64-unix/winemetal.so") == "stock-so" && read("variants/d3dmetal/wine/lib/wine/x86_64-windows/d3d11.dll") == "stock", "variants isolated")
+        precondition(read("variants/dxmt/wine/lib/wine/x86_64-windows/d3d11.dll") == "dxmt64" && read("variants/dxmt/wine/lib/wine/x86_64-unix/winemetal.so") == "dxmt-so", "dxmt files")
+        precondition(read("variants/d3dmetal/wine/lib/wine/x86_64-unix/winemetal.so") == "stock-so" && read("variants/d3dmetal/wine/lib/wine/x86_64-windows/d3d11.dll") == "stock", "variants isolated")
         precondition(read("variants/d3dmetal/wine/lib/wine/x86_64-windows/d3d12.dll") == "d3dm" && read("variants/d3dmetal/wine/lib/external/libd3dshared.dylib") == "dylib", "d3dmetal files")
         precondition(read("wine/lib/wine/x86_64-windows/d3d11.dll") == "stock", "pristine engine untouched")
         let path = CommandLine.arguments[1]

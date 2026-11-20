@@ -1092,12 +1092,13 @@ final class BottleStore: ObservableObject {
     static let wine11SHA256 = "08ffabd7b7c352470faee2b1d51061b341316e401439ca805c5302acc2fb8818"
     static let oldWine11ID = "steamy-wine-11.0"
 
-    /// Builds <engineDir>/variants/{dxmt,d3dmetal}/wine as clones of <engineDir>/wine. dxmt: the DXMT
-    /// bundled with the engine (<engineDir>/dxmt/{x64,x32}, from Whisky's Libraries/DXMT) goes into
-    /// lib/wine/x86_64-windows and i386-windows; its winemetal.so is the engine's own. d3dmetal: the
-    /// files of `d3dmetalRenderer` (a bottle's Contents/Frameworks/renderer/d3dmetal) go into lib/.
+    /// Builds <engineDir>/variants/{dxmt,d3dmetal}/wine as clones of <engineDir>/wine, with the files of
+    /// `renderer` (a bottle's Contents/Frameworks/renderer) copied into lib/: renderer/dxmt/wine
+    /// x86_64-windows and x86_64-unix (winemetal.so, overwriting the engine's), and for d3dmetal also
+    /// renderer/d3dmetal/external into lib/external. DXMT 0.80 from Whisky's bundle (Libraries/DXMT) did
+    /// not load as builtin (d3d11 and winemetal missing in +loaddll, 2026-11-20); the bottle's 0.74 does.
     /// Same volume, so `cp -c` makes the clones nearly free; falls back to a plain copy without APFS.
-    nonisolated static func buildEngineVariants(engineDir: URL, d3dmetalRenderer: URL) throws {
+    nonisolated static func buildEngineVariants(engineDir: URL, renderer: URL) throws {
         let fm = FileManager.default
         func run(_ tool: String, _ args: [String]) throws {
             let p = Process()
@@ -1129,14 +1130,11 @@ final class BottleStore: ObservableObject {
             try fm.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)
             do { try run("/bin/cp", ["-cR", base.path, wine.path]) } catch { try? fm.removeItem(at: wine); try run("/bin/cp", ["-R", base.path, wine.path]) }
             let lib = wine.appendingPathComponent("lib/wine")
-            if name == "dxmt" {
-                try copyInto(engineDir.appendingPathComponent("dxmt/x64"), lib.appendingPathComponent("x86_64-windows"))
-                try copyInto(engineDir.appendingPathComponent("dxmt/x32"), lib.appendingPathComponent("i386-windows"))
-            } else {
-                let src = d3dmetalRenderer.appendingPathComponent("wine")
-                try copyInto(src.appendingPathComponent("x86_64-windows"), lib.appendingPathComponent("x86_64-windows"))
-                try copyInto(src.appendingPathComponent("x86_64-unix"), lib.appendingPathComponent("x86_64-unix"))
-                try run("/usr/bin/ditto", [d3dmetalRenderer.appendingPathComponent("external").path, wine.appendingPathComponent("lib/external").path])
+            let src = renderer.appendingPathComponent(name + "/wine")
+            try copyInto(src.appendingPathComponent("x86_64-windows"), lib.appendingPathComponent("x86_64-windows"))
+            try copyInto(src.appendingPathComponent("x86_64-unix"), lib.appendingPathComponent("x86_64-unix"))
+            if name == "d3dmetal" {
+                try run("/usr/bin/ditto", [renderer.appendingPathComponent("d3dmetal/external").path, wine.appendingPathComponent("lib/external").path])
             }
         }
         let variants = engineDir.appendingPathComponent("variants")
@@ -1151,7 +1149,7 @@ final class BottleStore: ObservableObject {
         let engineDir = Self.enginesRoot.appendingPathComponent(Self.wine11ID)
         let ssd = URL(fileURLWithPath: "/Volumes/SSD")
         let tempBase = fm.fileExists(atPath: ssd.path) ? ssd.appendingPathComponent("wynix-tmp") : Self.enginesRoot
-        let renderer = rendererDir(bottle).appendingPathComponent("d3dmetal")
+        let renderer = rendererDir(bottle)
         // Already installed: a bottle may be running from it right now, never replace it underneath.
         if fm.fileExists(atPath: engineDir.appendingPathComponent("variants/dxmt/wine/bin/wine").path) { reload(); completion?(true); return }
         activity = "Installing Wine 11 (beta)…"
@@ -1185,11 +1183,10 @@ final class BottleStore: ObservableObject {
                 try? fm.removeItem(at: engineDir)
                 try fm.createDirectory(at: engineDir, withIntermediateDirectories: true)
                 try fm.moveItem(at: wine, to: engineDir.appendingPathComponent("wine"))
-                try fm.moveItem(at: unpacked.appendingPathComponent("Libraries/DXMT"), to: engineDir.appendingPathComponent("dxmt"))
-                let info = NSDictionary(contentsOf: unpacked.appendingPathComponent("Libraries/WhiskyWineVersion.plist"))
-                try ((info?["dxmtVersion"] as? String) ?? "unknown").write(to: engineDir.appendingPathComponent("dxmt-version"), atomically: true, encoding: .utf8)
+                let dxmtVersion = (try? String(contentsOf: renderer.appendingPathComponent("dxmt/version"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+                try (dxmtVersion ?? "unknown").write(to: engineDir.appendingPathComponent("dxmt-version"), atomically: true, encoding: .utf8)
                 try "Wine 11 (beta)".write(to: engineDir.appendingPathComponent("title"), atomically: true, encoding: .utf8)
-                try Self.buildEngineVariants(engineDir: engineDir, d3dmetalRenderer: renderer)
+                try Self.buildEngineVariants(engineDir: engineDir, renderer: renderer)
             } catch {
                 failure = error.localizedDescription
                 try? fm.removeItem(at: engineDir)
