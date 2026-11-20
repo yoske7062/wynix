@@ -17,7 +17,7 @@ Windows games and apps on your Apple Silicon Mac. Free, no VM, no subscription. 
 ## What you get
 
 - Apple's newest engine: D3DMetal 4 (Game Porting Toolkit 4), set up for you. DLSS games get MetalFX
-- Optimize: one click tunes a bottle for gaming (MSync, async shaders, exclusive fullscreen, 60 FPS cap for fanless Macs)
+- Optimize: one click tunes a bottle for gaming (MSync, async shaders, exclusive fullscreen, optional 60 Hz display limit)
 - Auto profile per game (DirectX 11 vs 12)
 - Boost: renders lower and upscales with Apple's MetalFX for more FPS
 - Our own in-game HUD: FPS, CPU, GPU, RAM and temp with green/yellow/red dots
@@ -25,9 +25,9 @@ Windows games and apps on your Apple Silicon Mac. Free, no VM, no subscription. 
 - Built-in benchmark (average FPS, 1% lows)
 - Any store or .exe, each in its own bottle
 
-## Heads up
+## Requirements
 
-- Apple Silicon + macOS 14 or newer. No Intel.
+- Apple Silicon + macOS 26 or newer. macOS 27 is recommended for D3DMetal 4. No Intel.
 - It's Wine under the hood, not Windows. Most games work, anti-cheat games usually don't.
 - Bring your own games and store accounts.
 
