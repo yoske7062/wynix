@@ -725,6 +725,19 @@ static void hudRow(NSMutableAttributedString *s, NSString *name, NSString *value
         attributes:@{NSFontAttributeName: bold, NSForegroundColorAttributeName: NSColor.whiteColor}]];
 }
 
+static struct { volatile double cpu, gpu, temp, mem, memTotal; } gSample = { -1, -1, -1, -1, 0 };
+
+/// Off the main thread. CPU, GPU and memory are cheap (10x a second); temperature every 2 s.
+static void hudSample(void) {
+    static int n;
+    if (!gHudFlag || access(gHudFlag, F_OK) != 0) return;
+    double c = cpuPercent(), g = gpuPercent(), total = 0, m = memoryUsedGB(&total);
+    gSample.cpu = c < 0 ? gSample.cpu : gSample.cpu < 0 ? c : gSample.cpu * 0.5 + c * 0.5;
+    gSample.gpu = g < 0 ? gSample.gpu : gSample.gpu < 0 ? g : gSample.gpu * 0.5 + g * 0.5;
+    gSample.mem = m; gSample.memTotal = total;
+    if (n++ % 20 == 0) { double t = chipTemperature(); gSample.temp = t > 0 ? t : -1; }
+}
+
 static void hudUpdate(void) {
     static uint64_t lastFrames, lastNs;
     static double fps, cpu = -1, gpu = -1, mem = -1, memTotal, temp = -1;
@@ -744,13 +757,10 @@ static void hudUpdate(void) {
         fps = 0;
         return;
     }
-    // Every reading on every tick (10x a second); each costs microseconds. Light smoothing so the
-    // numbers move fast without jittering.
-    double c = cpuPercent(), g = gpuPercent(), t = chipTemperature();
-    cpu = c < 0 ? cpu : cpu < 0 ? c : cpu * 0.5 + c * 0.5;
-    gpu = g < 0 ? gpu : gpu < 0 ? g : gpu * 0.5 + g * 0.5;
-    temp = t > 0 ? t : -1;
-    mem = memoryUsedGB(&memTotal);
+    // Readings come from hudSample() on a background queue: the chip temperature alone costs ~19 ms
+    // (measured on an M4, 2026-11-20), and doing it here blocked the game's main thread 10x a second,
+    // a dropped frame every 100 ms. This tick only reads the cached values.
+    cpu = gSample.cpu; gpu = gSample.gpu; temp = gSample.temp; mem = gSample.mem; memTotal = gSample.memTotal;
     CGFloat size = 11;
     NSFont *font = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightMedium];
     NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:size weight:NSFontWeightSemibold];
@@ -795,6 +805,11 @@ static void hudInit(void) {
     dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), NSEC_PER_SEC / 10, NSEC_PER_SEC / 50);
     dispatch_source_set_event_handler(timer, ^{ @autoreleasepool { @try { hudUpdate(); } @catch (id e) {} } });
     dispatch_resume(timer);
+    static dispatch_source_t sampler;
+    sampler = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_queue_create("wynix.hud.sample", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0)));
+    dispatch_source_set_timer(sampler, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), NSEC_PER_SEC / 10, NSEC_PER_SEC / 50);
+    dispatch_source_set_event_handler(sampler, ^{ @autoreleasepool { hudSample(); } });
+    dispatch_resume(sampler);
 }
 
 // ---- Game priority ----

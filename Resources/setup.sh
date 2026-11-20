@@ -253,6 +253,13 @@ stop_wrapper() {
     fi
     /bin/sleep 0.25
   done
+  # Steam gone but the Sikarugir launcher hangs on: every later Open failed with "Could not clean
+  # up the stalled launch" (2026-11-20). Nothing of Steam is left to save, so end the launcher.
+  if ! steam_client_is_running && steam_is_running; then
+    /usr/bin/pkill -9 -f -- "$WRAPPER/Contents/MacOS/Sikarugir" 2>/dev/null || true
+    /bin/sleep 0.5
+    steam_is_running || return 0
+  fi
   return 1
 }
 
