@@ -242,6 +242,7 @@ record_renderer() {
   /bin/mkdir -p "$APP_CACHE"
   local renderer=d3dmetal
   [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]] && renderer=dxmt
+  [[ "${1:-}" == dxmt || "${1:-}" == d3dmetal ]] && renderer="$1"  # Play's own request wins over the plist
   relink_engine_variant "$renderer"   # every cold start calls this right before opening the wrapper
   printf '%s' "$renderer" > "$renderer_mark"
 }
@@ -634,7 +635,7 @@ if [[ "${1:-setup}" == "play" ]]; then
   if (( cold_start )); then
     configure_wrapper_plist "$PLIST"
     steam_autorun_off
-    record_renderer
+    record_renderer "$wanted_renderer"
   fi
   steam_was_running=$(( 1 - cold_start ))
   # A pre-warmed Steam is ours to close after the game, like a cold start from Play.
