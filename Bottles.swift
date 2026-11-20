@@ -1090,7 +1090,6 @@ final class BottleStore: ObservableObject {
     static let wine11ID = "wine-11.19"
     static let wine11URL = URL(string: "https://github.com/frankea/Whisky/releases/download/v4.8.3/Libraries.tar.gz")!
     static let wine11SHA256 = "08ffabd7b7c352470faee2b1d51061b341316e401439ca805c5302acc2fb8818"
-    static let oldWine11ID = "steamy-wine-11.0"
 
     /// Builds <engineDir>/variants/{dxmt,d3dmetal}/wine as clones of <engineDir>/wine, with the files of
     /// `renderer` (a bottle's Contents/Frameworks/renderer) copied into lib/: renderer/dxmt/wine
@@ -1204,24 +1203,11 @@ final class BottleStore: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.activity = nil
-                if let failure { self.alertMessage = "Could not install Wine 11: \(failure)" } else { self.removeOldWine11IfUnused() }
+                if let failure { self.alertMessage = "Could not install Wine 11: \(failure)" }
                 self.reload()
                 completion?(failure == nil)
             }
         }
-    }
-
-    /// The old hand-made Wine 11 engine failed; drop it only when no bottle's wine link points into it.
-    func removeOldWine11IfUnused() {
-        let fm = FileManager.default
-        let old = Self.enginesRoot.appendingPathComponent(Self.oldWine11ID)
-        guard fm.fileExists(atPath: old.path) else { return }
-        let used = bottles.contains { bottle in
-            guard let link = try? fm.destinationOfSymbolicLink(atPath: wineDir(bottle).path) else { return false }
-            let p = URL(fileURLWithPath: link).standardizedFileURL.path
-            return p == old.path || p.hasPrefix(old.path + "/")
-        }
-        if !used { try? fm.removeItem(at: old) }
     }
 
     // MARK: Native Mac apps
