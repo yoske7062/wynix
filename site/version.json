@@ -1,1 +1,1 @@
-{"version":"0.26","build":26,"url":"https://wynix.app/api/dl","notes":"Closing Steam now actually closes it (no more reopening by itself). Dock game shortcuts close Steam after you play."}
+{"version":"0.27","build":27,"url":"https://wynix.app/api/dl","notes":"Fixes GTA V and other Rockstar games failing to launch. Faster shader compiling after Optimize."}
