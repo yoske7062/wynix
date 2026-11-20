@@ -53,7 +53,7 @@ final class Updater: ObservableObject {
             guard let (data, response) = try? await URLSession.shared.data(for: request),
                   (response as? HTTPURLResponse)?.statusCode == 200,
                   let release = try? JSONDecoder().decode(Release.self, from: data) else { return }
-            available = release.build > currentBuild && Self.isTrusted(release.url) ? release : nil
+            available = Self.isNewerBuild(release.build, than: currentBuild) && Self.isTrusted(release.url) ? release : nil
         }
     }
 
@@ -66,6 +66,10 @@ final class Updater: ObservableObject {
     /// can't send users to a look-alike download.
     nonisolated static func isTrusted(_ url: URL) -> Bool {
         url.scheme == "https" && url.host == "wynix.app" && url.user == nil && url.port == nil
+    }
+
+    nonisolated static func isNewerBuild(_ candidate: Int, than current: Int) -> Bool {
+        candidate > current
     }
 }
 
