@@ -778,7 +778,7 @@ static void hudUpdate(void) {
     CGSize text = [s size];
     CGFloat pad = 8, m = 12, w = ceil(MAX(text.width, 110)) + 2 * pad, th = ceil(text.height), h = th + 2 * pad;
     CGRect b = host.bounds;
-    gHudLayer.frame = CGRectMake(b.size.width - w - m, host.geometryFlipped ? m : b.size.height - h - m, w, h);
+    gHudLayer.frame = CGRectMake(b.size.width - w - m, [host contentsAreFlipped] ? m : b.size.height - h - m, w, h);
     gHudText.frame = CGRectMake(pad, pad, w - 2 * pad, th);
     [CATransaction commit];
 }

@@ -848,9 +848,10 @@ final class BottleStore: ObservableObject {
         // DLSS -> MetalFX (upscaling, and frame generation on macOS 26). Only games that call
         // DLSS use it; the rest are unaffected.
         setEnvironment(bottle, "D3DM_ENABLE_METALFX", "1")
-        // Cap games at 60 FPS: no need to burn a fanless Mac. DXVK and DXMT support a cap;
-        // D3DMetal has none (the opt-in "Limit display to 60 Hz" setting covers it).
-        setEnvironment(bottle, "DXVK_FRAME_RATE", "60")
+        // No forced FPS cap: players asked for uncapped (Koikatsu). The opt-in "Limit display to
+        // 60 Hz" setting caps every renderer for those who want a cooler Mac. Clears older caps.
+        setEnvironment(bottle, "DXVK_FRAME_RATE", nil)
+        setEnvironment(bottle, "D3DM_MAX_FPS", nil)
         // This DXVK build (dxvk-macOS-async) compiles shaders in the background: fewer stutters.
         setEnvironment(bottle, "DXVK_ASYNC", "1")
         // MoltenVK (DXVK's Metal layer): compile shaders on all cores at once (off by default; macOS
@@ -864,7 +865,9 @@ final class BottleStore: ObservableObject {
         if bottle.isSteam && plistDictionary(bottle)["WynixUpscaleDX12"] == nil && !boost(bottle) {
             setUpscaleDX12(bottle, true, notify: false)
         }
-        var macDriver = ["CaptureDisplaysForFullscreen": "\"y\""]  // fullscreen games bypass the window compositor
+        // Exclusive Fullscreen off: with it on, Cmd-Tab out of a fullscreen game left it hidden and
+        // unreachable (Koikatsu, 2026-11-20). Still a toggle in the bottle settings.
+        var macDriver = ["CaptureDisplaysForFullscreen": "\"n\""]
         // Point resolution is the biggest FPS win on Retina Macs, but it was overwriting the user's
         // "High Resolution Mode" choice on every Optimize (Steam looked pixelated). Only set it once.
         if RegistryFile.section(bottle.prefix.appendingPathComponent("user.reg"), "Software\\Wine\\Mac Driver")["RetinaMode"] == nil {
@@ -1256,6 +1259,13 @@ final class BottleStore: ObservableObject {
     static func ensureUserFolders(_ bottle: Bottle) {
         let users = bottle.driveC.appendingPathComponent("users")
         let fm = FileManager.default
+        // Sikarugir's own chmod pass (on wineserverkill) once left drive_c as rw-rw-rw-: no execute
+        // bit, so no folder inside it opens and every program and Steam fail silently (2026-11-20).
+        for dir in [bottle.prefix, bottle.driveC] {
+            if let mode = (try? fm.attributesOfItem(atPath: dir.path))?[.posixPermissions] as? Int, mode & 0o111 != 0o111 {
+                try? fm.setAttributes([.posixPermissions: mode | 0o111], ofItemAtPath: dir.path)
+            }
+        }
         for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? [] {
             guard user.lastPathComponent != "Public",
                   (try? user.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { continue }
@@ -1303,8 +1313,7 @@ final class BottleStore: ObservableObject {
             return false
         }
         if !quiet { setPlist(bottle, ["WynixD3DMetal": on ? "4" : "3"]) }
-        // D3DMetal 4 honors D3DM_MAX_FPS (3.0 does not): same 60 FPS cap DXVK/DXMT get, for fanless Macs.
-        setEnvironment(bottle, "D3DM_MAX_FPS", d3dmetalVersion(bottle)?.hasPrefix("4") == true ? "60" : nil)
+        setEnvironment(bottle, "D3DM_MAX_FPS", nil)  // no forced FPS cap (opt-in: "Limit display to 60 Hz")
         return true
     }
 
@@ -1315,7 +1324,7 @@ final class BottleStore: ObservableObject {
         guard !wantsD3DMetal3(bottle) else { then(); return }
         guard D3DMetalSwap.stagedAvailable else { downloadD3DMetal4(then: bottle); then(); return }
         let is4 = d3dmetalVersion(bottle)?.hasPrefix("4") == true
-        if is4 { setEnvironment(bottle, "D3DM_MAX_FPS", "60"); then(); return }
+        if is4 { setEnvironment(bottle, "D3DM_MAX_FPS", nil); then(); return }
         // The swap copies the whole framework: off the main thread, or Play beachballs.
         let renderer = rendererDir(bottle)
         let showing = activity == nil
@@ -1325,7 +1334,7 @@ final class BottleStore: ObservableObject {
                 && (try? D3DMetalSwap.swap(renderer: renderer, staged: D3DMetalSwap.staged, to4: true)) != nil
             DispatchQueue.main.async {
                 if showing { self?.activity = nil }
-                if ok { self?.setEnvironment(bottle, "D3DM_MAX_FPS", "60") }
+                if ok { self?.setEnvironment(bottle, "D3DM_MAX_FPS", nil) }
                 then()
             }
         }
@@ -1372,13 +1381,13 @@ final class BottleStore: ObservableObject {
         min(2.0, max(1.0, min(1920, Double(CGDisplayPixelsWide(CGMainDisplayID()))) / boostRenderWidth))
     }
 
-    /// Writes C:/steamy/dxmt.conf: a steady 60 FPS cap always (cooler Mac), plus the MetalFX
+    /// Writes C:/steamy/dxmt.conf: no FPS cap, plus the MetalFX
     /// upscale factor when Steamy Boost is on.
     @discardableResult
     func writeDXMTConfig(_ bottle: Bottle, boost: Bool) -> Bool {
         guard FileManager.default.fileExists(atPath: bottle.url.path) else { return false }
         let confDir = bottle.driveC.appendingPathComponent("steamy")
-        var conf = "# Written by Steamy\nd3d11.preferredMaxFrameRate = 60\n"
+        var conf = "# Written by Steamy\n"
         if boost { conf += "d3d11.metalSpatialUpscaleFactor = \(String(format: "%.2f", Self.boostFactor))\n" }
         do {
             try FileManager.default.createDirectory(at: confDir, withIntermediateDirectories: true)
@@ -1498,7 +1507,7 @@ final class BottleStore: ObservableObject {
     // MARK: Optimized state
 
     /// Bump when `optimizeForGaming` gains settings, so bottles get offered the new ones.
-    static let optimizeVersion = 6
+    static let optimizeVersion = 7
 
     func isOptimized(_ bottle: Bottle) -> Bool {
         ((plistDictionary(bottle)["SteamyOptimized"] as? NSNumber)?.intValue ?? 0) >= Self.optimizeVersion
@@ -2591,7 +2600,7 @@ struct OptimizeSheet: View {
         ("xmark.octagon", "No crash pop-ups", "Hides Wine's \"Program Error\" dialogs."),
         ("textformat", "Smooth fonts", "ClearType font smoothing so apps look closer to native."),
         ("sparkles", "DLSS via MetalFX", "Games with DLSS get Apple's MetalFX upscaling and frame generation."),
-        ("thermometer.medium", "60 FPS cap", "Games stop at a steady 60 so your Mac stays cooler (DXVK and DXMT games). Turn on 'Limit display to 60 Hz' in Settings for DirectX 12 games.")
+        ("thermometer.medium", "No FPS cap", "Games run as fast as your Mac allows. Want a cooler Mac? Turn on 'Limit display to 60 Hz' in Settings.")
     ]
 
     var body: some View {

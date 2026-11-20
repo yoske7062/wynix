@@ -60,6 +60,8 @@ open_wrapper() {
   if [[ "${MACSTEAM_TEST_NO_OPEN:-0}" == "1" ]]; then
     return 0
   fi
+  # Sikarugir's chmod pass can leave drive_c without the execute bit: Steam then can't start.
+  /bin/chmod a+X "$PREFIX_ROOT" "$PREFIX_ROOT/drive_c" 2>/dev/null || true
   /usr/bin/open "$WRAPPER"
 }
 
