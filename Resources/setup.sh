@@ -250,12 +250,28 @@ record_renderer() {
 # Last resort for stop: Windows-path processes of the Steam bottle that survived wineserverkill
 # (lsof can time out on a busy Wine, so the pid check above may miss them; seen 2026-11-19 with
 # Steam + the Rockstar launcher left running after "Close Everything").
+# Drops pids whose working folder is inside another Wine prefix (a CrossOver bottle, say): its
+# Steam is not ours (it killed CrossOver's Steam, 2026-11-20). Games on an external library have
+# no drive_c in their path and stay in.
+# ponytail: a game of another bottle that runs from an external library still matches; check its
+# WINEPREFIX if that ever shows up.
+other_prefix_filter() {
+  local pid cwd own
+  own="$(cd -P "$PREFIX_ROOT" 2>/dev/null && pwd -P)" || own="$PREFIX_ROOT"  # lsof prints resolved paths
+  for pid in "$@"; do
+    cwd="$(/usr/sbin/lsof -a -d cwd -p "$pid" -Fn 2>/dev/null | /usr/bin/sed -n 's/^n//p')"
+    [[ "$cwd" == */drive_c/* && "$cwd" != "$own"/* ]] && continue
+    echo "$pid"
+  done
+}
+
 kill_leftover_steam_processes() {
   local pids sig
   for sig in TERM KILL; do
     pids="$(/bin/ps -axo pid=,command= | /usr/bin/awk '
       { pid=$1; $1=""; c=tolower($0); sub(/^ +/, "", c) }
       c ~ /^[a-z]:\\/ && (c ~ /\\steam\\/ || c ~ /rockstar games/ || c ~ /steamapps\\common\\/) { print pid }')"
+    pids="$(other_prefix_filter $pids)"
     [[ -z "$pids" ]] && return 0
     /bin/kill -"$sig" $pids 2>/dev/null || true
     /bin/sleep 2
@@ -300,13 +316,14 @@ any_steam_game_running() {
 # a game may be running even if its path isn't under steamapps\common. Used only to veto a restart.
 game_may_be_running() {
   any_steam_game_running && return 0
-  /bin/ps -axo command= | /usr/bin/awk '
-    { c=tolower($0) }
+  local pids
+  pids="$(/bin/ps -axo pid=,command= | /usr/bin/awk '
+    { pid=$1; $1=""; c=tolower($0); sub(/^ +/, "", c) }
     c !~ /^[a-z]:\\/ { next }
     { sub(/\.exe.*/, "", c); n=split(c, p, "\\"); b=p[n]
       if (b ~ /^(steam|steamwebhelper|steamservice|wineserver|explorer|services|winedevice|plugplay|rpcss|svchost|conhost|start|cmd)$/) next
-      found=1 }
-    END { exit !found }'
+      print pid }')"
+  [[ -n "$(other_prefix_filter $pids)" ]]  # another bottle's program (CrossOver's Epic) is not our game
 }
 
 stop_steam_after_game() {
