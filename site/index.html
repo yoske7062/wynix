@@ -340,7 +340,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     <a class="btn lg dl" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a>
     <a class="btn lg ghost" href="#faq">Check your game</a>
   </div>
-  <p class="note" data-in>Free. Apple Silicon (M1 or newer). macOS 14+. <a href="/downloads/WYNIX.dmg.sha256" style="color:inherit">SHA-256</a></p>
+  <p class="note" data-in>Free. Apple Silicon (M1 or newer). macOS 26+. <a href="/downloads/WYNIX.dmg.sha256" style="color:inherit">SHA-256</a></p>
   <!-- Interactive replica of the real app UI (Home.swift / Bottles.swift). Click around. -->
   <img id="banner" src="assets/app-home.png" width="1600" height="1247" alt="WYNIX app: Home with game stores and bottles" style="display:block;width:100%;max-width:1080px;height:auto;margin:0 auto;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.35)">
   <p class="fine" style="margin-top:14px">Interactive preview of the real app. Click around.</p>
@@ -351,7 +351,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <div class="why" data-list>
     <div><b>Every big store</b><p>Steam, Epic, GOG Galaxy, Battle.net, EA app and Ubisoft Connect. One click each.</p></div>
     <div><b>Any .exe, not just games</b><p>Got a Windows-only tool, mod manager or old app? Install it from file and it shows up like a Mac app.</p></div>
-    <div><b>Bottles you control</b><p>Make separate bottles, pick the Windows version and the graphics layer, flip Boost or the FPS counter per bottle.</p></div>
+    <div><b>Bottles you control</b><p>Make separate bottles, pick the Windows version and graphics layer, choose the Wine 11 engine (beta) in a bottle's Advanced Settings, and flip Boost or the FPS counter per bottle.</p></div>
   </div>
 </section>
 
@@ -396,7 +396,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     <div><b>Playing in minutes</b><p>One click installs Steam. Sign in to Steam and your library is there.</p></div>
     <div><b>A profile per game</b><p>On Play, WYNIX detects whether the game is DirectX 11 or 12 and offers the best setup in one click: "Apply and Play" or "Play without changes".</p></div>
     <div><b>MetalFX Boost</b><p>The game renders at a lower resolution and Apple's MetalFX upscales it, up to 1080p. No DLSS needed. DLSS games still get DLSS to MetalFX.</p></div>
-    <div><b>Easy on your Mac</b><p>Game Mode lowers background apps' priority while you play. A 60 FPS cap on DirectX 12 helps fanless Macs.</p></div>
+    <div><b>Easy on your Mac</b><p>Game Mode lowers background apps' priority while you play. An optional 60 Hz display limit helps fanless Macs.</p></div>
     <div><b>Also does launchers</b><p>Battle.net and Epic install the same way. One click each.</p></div>
     <div><b>Built to keep working</b><p>Play never gets stuck. Steam stays warm for 5 minutes so the next game opens in seconds, and you get clear messages when you are offline or your games drive is unplugged.</p></div>
     <div><b>Latest Apple tech</b><p>Built on Apple's D3DMetal 4 (Game Porting Toolkit 4, beta), with D3DMetal 3.0 kept as a compatibility fallback.</p></div>
@@ -407,7 +407,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
 <section id="games" class="wrap">
   <h2 data-up>Built for the <em class="acc">big ones</em>.</h2>
-  <p class="lead" data-up>WYNIX detects each game and offers the right setup: <b>D3DMetal 4 (beta) for DirectX 12, DXMT for DirectX 11</b>. <b>MetalFX Boost</b> renders at a lower resolution and upscales it, <b>DirectX 11 Boost</b> adds a 60 FPS cap, and Game Mode lowers background apps' priority.</p>
+  <p class="lead" data-up>WYNIX detects each game and offers the right setup: <b>D3DMetal 4 (beta) for DirectX 12, DXMT for DirectX 11</b>. <b>MetalFX Boost</b> renders at a lower resolution and upscales it, while an optional 60 Hz display limit and Game Mode can help fanless Macs.</p>
 </section>
 <div class="wall" data-up>
   <div class="trk" id="trk">
@@ -446,12 +446,12 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </div>
   <div class="faq" data-list>
     <details open><summary>Which games work?</summary><p>WYNIX targets DirectX 11 and 12 games on Steam, and single player games are the safest bet. Results vary by game and by Mac, so try yours: it's free, and you'll know in a few minutes.</p></details>
-    <details><summary>Fortnite, Valorant, Apex, Call of Duty?</summary><p>No. Games with kernel level anti-cheat refuse to start outside Windows. That's true for every Wine-based tool on Mac, paid or free.</p></details>
+    <details><summary>Known limitations</summary><p>Games with kernel anti-cheat do not run on Wine on any Mac app, including Fortnite, GTA Online and Valorant.</p></details>
     <details><summary>My Mac says it can't verify the app. Is it safe?</summary><p>WYNIX isn't notarized by Apple yet, so macOS warns you the first time. Two ways to fix it in under a minute, <a href="#safe" style="text-decoration:underline">see the steps</a>. You only do this once.</p></details>
-    <details><summary>What Mac do I need?</summary><p>Any Mac with Apple Silicon (M1 or newer) on macOS 14 or later. More GPU cores means higher settings.</p></details>
+    <details><summary>What Mac do I need?</summary><p>Any Mac with Apple Silicon (M1 or newer) on macOS 26 or later. macOS 27 is recommended for D3DMetal 4. More GPU cores means higher settings.</p></details>
     <details><summary>How is this free?</summary><p>WYNIX is an independent student project with no ads, trial, or required account. Optional donations help cover the Apple Developer account and hosting. You sign in to Steam, not to WYNIX.</p></details>
     <details><summary>Do my saves and achievements work?</summary><p>Yes. It's the real Steam client, so cloud saves, achievements and friends work as usual.</p></details>
-    <details><summary>Will it heat up my Mac?</summary><p>Games are demanding on any Mac. WYNIX helps with Game Mode (lower priority for background apps) and a 60 FPS cap on DirectX 12 and DirectX 11 Boost, which suits fanless Macs.</p></details>
+    <details><summary>Will it heat up my Mac?</summary><p>Games are demanding on any Mac. WYNIX helps with Game Mode (lower priority for background apps) and an optional 60 Hz display limit, which suits fanless Macs.</p></details>
   </div>
 </section>
 
@@ -499,7 +499,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <h2 data-up>Keep your money. <span><em class="acc">Play the game.</em></span></h2>
   <p class="lead" data-up>Download WYNIX, install Steam in <b>one click</b>, press Play.</p>
   <div data-up><a class="btn lg dl" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a></div>
-  <p class="note" data-up>Free. Apple Silicon. macOS 14+.</p>
+  <p class="note" data-up>Free. Apple Silicon. macOS 26+.</p>
   <ol class="steps" id="steps">
     <li><b>Drag WYNIX to Applications.</b> Open the downloaded file and drop the app into the folder.</li>
     <li><b>Open it once.</b> macOS will say it can't verify the app. Click Done.</li>
