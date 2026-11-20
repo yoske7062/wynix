@@ -25,13 +25,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Archivo:wdth,wght@125,900&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:oklch(0.15 0 0); --ink:oklch(0.97 0 0); --gray:oklch(0.7 0 0); --line:oklch(0.26 0 0); --soft:oklch(0.2 0 0);
+  --bg:oklch(0.15 0 0); --ink:oklch(0.97 0 0); --gray:oklch(0.74 0 0); --line:oklch(0.26 0 0); --soft:oklch(0.2 0 0);
   --ok:#E05A83; --acc:#E05A83; --r:16px; --z-nav:10;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased;color-scheme:dark}
 body{background:var(--bg);isolation:isolate;color:var(--ink);font-family:Geist,system-ui,sans-serif;font-size:17px;line-height:1.55;overflow-x:hidden}
 a{color:inherit;text-decoration:none}
+.skip-link{position:absolute;left:24px;top:-80px;z-index:100;background:var(--ink);color:var(--bg);border-radius:8px;padding:10px 14px;font-weight:600}
+.skip-link:focus{top:12px}
+:focus-visible{outline:3px solid #ffd3e0;outline-offset:4px}
+.btn:focus-visible,.brand:focus-visible,.links a:focus-visible,.flinks a:focus-visible{outline:3px solid #ffd3e0;outline-offset:4px}
+summary:focus-visible,.app button:focus-visible,.app input:focus-visible{outline:3px solid #ffd3e0;outline-offset:3px}
 img{display:block;width:100%}
 h1,h2{text-wrap:balance}
 p{text-wrap:pretty}
@@ -43,7 +48,7 @@ nav .wrap{height:64px;display:flex;align-items:center;justify-content:space-betw
 .brand{display:flex;align-items:baseline;font:900 26px/1 Archivo,system-ui,sans-serif;font-stretch:125%;letter-spacing:-.03em;perspective:160px}
 .brand .w{display:inline-block;margin-right:1px;animation:wspin 2.4s linear infinite,shine 5s ease-in-out infinite}
 @keyframes wspin{to{transform:rotateY(360deg)}}
-@media (prefers-reduced-motion:reduce){.brand .w{animation:none}}
+@media (prefers-reduced-motion:reduce){.brand .w,.app .me .w{animation:none}}
 .links{display:flex;gap:32px;font-size:14px;color:var(--gray)}
 .links a{transition:color .25s}.links a:hover{color:var(--ink)}
 .btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:99px;background:var(--ink);color:var(--bg);font-size:14px;font-weight:500;transition:transform .4s cubic-bezier(.16,1,.3,1),background .3s}
@@ -59,7 +64,7 @@ h1 span,h2 span{color:var(--gray)}
 .ctas{display:flex;gap:10px;justify-content:center;margin-top:36px}
 .note{margin-top:16px;font-size:13px;color:var(--gray)}
 .acc,.brand .w{font-style:normal;color:#E05A83;
-  background:linear-gradient(110deg,#c94470 0%,#e05a83 16%,#ffd3e0 27%,#e05a83 40%,#f08aa8 52%,#ffe4ec 60%,#d24d77 72%,#e05a83 88%,#c94470 100%);
+  background:linear-gradient(110deg,#c94470 0%,#e05a83 16%,#f08aa8 27%,#e05a83 40%,#f08aa8 52%,#e05a83 60%,#d24d77 72%,#e05a83 88%,#c94470 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
   filter:drop-shadow(0 0 18px rgba(224,90,131,.35));animation:shine 5s ease-in-out infinite}
 @keyframes shine{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
@@ -84,7 +89,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .fix p{color:var(--gray)}
 .cmd{display:flex;align-items:center;gap:10px;margin:14px 0 4px;background:#0b0b0b;border:1px solid var(--line);border-radius:12px;padding:12px 12px 12px 16px}
 .cmd code{flex:1;font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);overflow-x:auto;white-space:nowrap}
-.cmd button{font:inherit;font-size:13px;border:0;border-radius:8px;padding:6px 12px;background:var(--acc);color:#fff;cursor:pointer}
+.cmd button{font:inherit;font-size:13px;border:0;border-radius:8px;padding:6px 12px;background:var(--acc);color:#111;cursor:pointer;font-weight:700}
 .bill h3 b{color:var(--ink);font-weight:600}
 .theirs{align-self:flex-start;margin-top:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--gray);border:1px dashed var(--line);border-radius:99px;padding:3px 10px}
 .bill .them{color:var(--gray);text-decoration:line-through;text-decoration-color:#E05A83;text-decoration-thickness:3px}
@@ -103,7 +108,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .app .sheet.wide{width:460px}.app .sheet.win{width:440px;max-height:480px;overflow:auto;padding:0 14px 14px;gap:8px}
 .app .sheet h6{font-size:18px;font-weight:700}.app .sheet p{color:#aaa;font-size:13px}
 .app .sheet .row{display:flex;align-items:center;justify-content:space-between;gap:10px}.app .sheet .row.l{justify-content:flex-start}
-.app .mut2{color:#999}.app .cap{font-size:11.5px!important;color:#888!important}
+.app .mut2{color:#aaa}.app .cap{font-size:11.5px!important;color:#aaa!important}
 .app .mb{background:rgba(255,255,255,.12);border-radius:6px;padding:4px 12px;font-size:13px;color:#fff}
 .app .mb.pri{background:#0a64d8}.app .mb[disabled]{opacity:.45;cursor:default}
 .app .pop{background:rgba(255,255,255,.1);border-radius:6px;padding:3px 10px;font-size:13px}
@@ -134,7 +139,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .app{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;margin:72px auto 0;display:grid;grid-template-columns:210px 1fr;height:620px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#1e1e1e;text-align:left;font-size:14px}
 .app aside{background:#161616;border-right:1px solid #2a2a2a;padding:14px 10px;display:flex;flex-direction:column;gap:2px}
 .app .dots{display:flex;gap:7px;margin:0 6px 18px}.app .dots i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.app .dots i+i{background:#febc2e}.app .dots i+i+i{background:#28c840}
-.app small{color:#777;font-size:11px;margin:10px 8px 4px}
+.app small{color:#aaa;font-size:11px;margin:10px 8px 4px}
 .app button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .app aside button{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;text-align:left}
 .app aside button svg{width:16px;height:16px;fill:currentColor;flex:none}
@@ -147,7 +152,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .app h4{font-size:28px;font-weight:600;letter-spacing:-.02em}
 .app .d{color:#999;margin-top:2px}
 .app h5{font-size:16px;font-weight:600;margin:22px 0 10px}
-.app .srch{margin-top:16px;background:#262626;border-radius:9px;padding:9px 14px;color:#777}
+.app .srch{margin-top:16px;background:#262626;border-radius:9px;padding:9px 14px;color:#aaa}
 .app .stores{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .app .stores.one{grid-template-columns:repeat(3,1fr)}
 .app .stores>div{display:flex;align-items:center;gap:12px;background:#2a2a2c;border-radius:14px;padding:12px}
@@ -158,7 +163,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .app .me{margin:2px 10px 10px;perspective:160px}
 @keyframes wspin{to{transform:rotateY(360deg)}}
 @media (prefers-reduced-motion:reduce){.app .me span{animation:none}}
-.app .disc{color:#777;font-size:11.5px;margin-top:26px;line-height:1.5}
+.app .disc{color:#aaa;font-size:11.5px;margin-top:26px;line-height:1.5}
 .app .tb{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:14px;padding:0 16px;color:#aaa;font-size:13px}
 .app .tb svg{width:18px;height:18px;margin-left:-44px}.app .tb b{color:#eee;font-weight:600}
 .app main{padding-top:58px!important}
@@ -308,12 +313,16 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .sticky.h{opacity:0;transform:translateY(20px);pointer-events:none}
   footer{padding-bottom:96px}
 }
-@media (prefers-reduced-motion:reduce){.wall .trk{animation-duration:180s}}
+@media (prefers-reduced-motion:reduce){
+  .wall .trk,.brand .w,.acc,.app .me .w,.app .v.on,body::before{animation:none!important}
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
-<svg width="0" height="0" style="position:absolute">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#26282B"/><path d="M13 24l8 15 11-15 11 15 8-15" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="apple" viewBox="0 0 24 24"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.1 2.5-1.8 3.1-.5 7.6 1.3 10.1.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.6-1-2.6-4.2zM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.2-.6 2.9-1.4z"/></symbol>
   <symbol id="xlogo" viewBox="0 0 24 24"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></symbol>
@@ -321,28 +330,29 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <symbol id="github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.8.1-.8.1-.8 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C15.5 5.7 16.5 6 16.5 6c.6 1.6.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v2.6c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></symbol>
 </svg>
 
-<nav id="nav">
+<nav id="nav" aria-label="Primary navigation">
   <div class="wrap">
     <a class="brand" href="#" aria-label="WYNIX home"><span class="w">W</span>YNIX</a>
     <div class="links"><a href="#bill">Why us</a><a href="#games">Games</a><a href="#compare">Compare</a><a href="#faq">FAQ</a><a href="#safe">"Not safe"?</a><a href="#donate">Donate</a></div>
     <div style="display:flex;gap:10px;align-items:center">
-      <a class="btn" style="width:40px;padding:0;justify-content:center" href="https://x.com/getwynix" target="_blank" rel="noopener" aria-label="WYNIX on X" title="WYNIX on X"><svg width="16" height="16"><use href="#xlogo"/></svg></a>
-      <a class="btn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" aria-label="Support WYNIX on Ko-fi" title="Support WYNIX on Ko-fi"><svg width="16" height="16"><use href="#kofi"/></svg>Ko-fi</a>
-      <a class="btn" href="https://github.com/yoske7062/wynix" target="_blank" rel="noopener" aria-label="View WYNIX on GitHub" title="View WYNIX on GitHub"><svg width="16" height="16"><use href="#github"/></svg>GitHub</a>
+      <a class="btn" style="width:40px;padding:0;justify-content:center" href="https://x.com/getwynix" target="_blank" rel="noopener" aria-label="WYNIX on X" title="WYNIX on X"><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#xlogo"/></svg></a>
+      <a class="btn" href="https://ko-fi.com/wynix" target="_blank" rel="noopener" aria-label="Support WYNIX on Ko-fi" title="Support WYNIX on Ko-fi"><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#kofi"/></svg>Ko-fi</a>
+      <a class="btn" href="https://github.com/yoske7062/wynix" target="_blank" rel="noopener" aria-label="View WYNIX on GitHub" title="View WYNIX on GitHub"><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#github"/></svg>GitHub</a>
     </div>
   </div>
 </nav>
 
+<main id="main-content" tabindex="-1">
 <header class="hero wrap">
   <h1 data-in>Your Windows games and apps. <span>On your Mac.</span></h1>
   <p class="sub" data-in>Steam, Epic, GOG, Battle.net or any .exe. One click, then press Play. No Windows license, no virtual machine, no subscription. <span class="acc">Free, for real.</span></p>
   <div class="ctas" data-in>
-    <a class="btn lg dl" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a>
+    <a class="btn lg dl" href="/api/dl" download><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#apple"/></svg>Download for Mac</a>
     <a class="btn lg ghost" href="#faq">Check your game</a>
   </div>
   <p class="note" data-in>Free. Apple Silicon (M1 or newer). macOS 14+. <a href="/downloads/WYNIX.dmg.sha256" style="color:inherit">SHA-256</a></p>
   <!-- Interactive replica of the real app UI (Home.swift / Bottles.swift). Click around. -->
-  <img id="banner" src="assets/app-home.png" width="1600" height="1247" alt="WYNIX app: Home with game stores and bottles" style="display:block;width:100%;max-width:1080px;height:auto;margin:0 auto;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.35)">
+  <img id="banner" src="assets/app-home.png" width="1600" height="1247" alt="WYNIX app home screen showing Steam, Epic, GOG, Battle.net, and bottle setup options" style="display:block;width:100%;max-width:1080px;height:auto;margin:0 auto;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.35)">
   <p class="fine" style="margin-top:14px">Interactive preview of the real app. Click around.</p>
 </header>
 
@@ -411,12 +421,12 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 </section>
 <div class="wall" data-up>
   <div class="trk" id="trk">
-    <figure><img src="assets/games/1091500.jpg" alt="Cyberpunk 2077" loading="lazy"></figure>
-    <figure><img src="assets/games/1245620.jpg" alt="Elden Ring" loading="lazy"></figure>
-    <figure><img src="assets/games/1174180.jpg" alt="Red Dead Redemption 2" loading="lazy"></figure>
-    <figure><img src="assets/games/990080.jpg" alt="Hogwarts Legacy" loading="lazy"></figure>
-    <figure><img src="assets/games/1593500.jpg" alt="God of War" loading="lazy"></figure>
-    <figure><img src="assets/games/2215430.jpg" alt="Ghost of Tsushima" loading="lazy"></figure>
+    <figure><img src="assets/games/1091500.jpg" alt="Cyberpunk 2077 game cover" loading="lazy"></figure>
+    <figure><img src="assets/games/1245620.jpg" alt="Elden Ring game cover" loading="lazy"></figure>
+    <figure><img src="assets/games/1174180.jpg" alt="Red Dead Redemption 2 game cover" loading="lazy"></figure>
+    <figure><img src="assets/games/990080.jpg" alt="Hogwarts Legacy game cover" loading="lazy"></figure>
+    <figure><img src="assets/games/1593500.jpg" alt="God of War game cover" loading="lazy"></figure>
+    <figure><img src="assets/games/2215430.jpg" alt="Ghost of Tsushima game cover" loading="lazy"></figure>
   </div>
 </div>
 <p class="wrap fine" style="margin-top:20px">Artwork shown for reference, not a compatibility promise.</p>
@@ -442,7 +452,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <div class="faqhead" data-up>
     <h2>Will my game <em class="acc">run</em>?</h2>
     <p class="lead">The fastest way to know is to try it. It's free, there's no account, and you'll know in a few minutes.</p>
-    <a class="btn lg dl" href="/api/dl" download style="margin-top:28px"><svg width="16" height="16"><use href="#apple"/></svg>Try it free</a>
+    <a class="btn lg dl" href="/api/dl" download style="margin-top:28px"><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#apple"/></svg>Try it free</a>
   </div>
   <div class="faq" data-list>
     <details open><summary>Which games work?</summary><p>WYNIX targets DirectX 11 and 12 games on Steam, and single player games are the safest bet. Results vary by game and by Mac, so try yours: it's free, and you'll know in a few minutes.</p></details>
@@ -498,7 +508,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <div class="panel">
   <h2 data-up>Keep your money. <span><em class="acc">Play the game.</em></span></h2>
   <p class="lead" data-up>Download WYNIX, install Steam in <b>one click</b>, press Play.</p>
-  <div data-up><a class="btn lg dl" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac</a></div>
+  <div data-up><a class="btn lg dl" href="/api/dl" download><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#apple"/></svg>Download for Mac</a></div>
   <p class="note" data-up>Free. Apple Silicon. macOS 14+.</p>
   <ol class="steps" id="steps">
     <li><b>Drag WYNIX to Applications.</b> Open the downloaded file and drop the app into the folder.</li>
@@ -507,10 +517,11 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </ol>
   </div>
 </section>
+</main>
 
 <footer><div class="wrap"><span>WYNIX. Not affiliated with Valve, Microsoft, Apple, Parallels, CodeWeavers or Whisky. Game artwork and trademarks belong to their respective owners.</span><span class="flinks"><a href="/legal.html#terms">Terms</a><a href="/legal.html#privacy">Privacy</a><a href="/legal.html#donations">Donations</a><a href="/legal.html#licenses">Licenses</a></span></div></footer>
 
-<a class="btn lg dl sticky" id="sticky" href="/api/dl" download><svg width="16" height="16"><use href="#apple"/></svg>Download for Mac, free</a>
+<a class="btn lg dl sticky" id="sticky" href="/api/dl" download><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#apple"/></svg>Download for Mac, free</a>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" integrity="sha384-g4NTh/Iv5PPU4xPyhEWqPcwtNXOvdaDI8LLnyYfyNZOjKJeYQyjzQ9X5275eBjpt" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" integrity="sha384-Z3REaz79l2IaAZqJsSABtTbhjgOUYyV3p90XNnAPCSHg3EMTz1fouunq9WZRtj3d" crossorigin="anonymous"></script>
