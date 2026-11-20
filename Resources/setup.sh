@@ -535,6 +535,11 @@ fi
 
 if [[ "${1:-setup}" == "play" ]]; then
   app_id="${2:-}"
+  # Games such as GTA V (Rockstar Launcher) fail without the Windows Documents folder.
+  for user_dir in "$WRAPPER/Contents/drive_c/users"/*/; do
+    [[ -L "${user_dir%/}" || "$(basename "$user_dir")" == Public ]] && continue
+    /bin/mkdir -p "$user_dir"{Documents,Desktop,Downloads,Music,Pictures,Videos} 2>/dev/null || true
+  done
   [[ "$app_id" =~ ^[0-9]+$ ]] || fail_key invalid_game_id
   [[ -f "$OWNER_MARKER" && -x "$WRAPPER/Contents/MacOS/Sikarugir" && -f "$STEAM_EXE" ]] \
     || fail_key installed_steam_not_found

@@ -732,6 +732,7 @@ final class BottleStore: ObservableObject {
             return
         }
         removeAppleHUD(bottle)
+        Self.ensureUserFolders(bottle)
         // macOS Game Mode: top CPU/GPU priority and fewer background tasks while the game is fullscreen.
         if (plistDictionary(bottle)["LSSupportsGameMode"] as? Bool) != true {
             setPlist(bottle, ["LSSupportsGameMode": true, "LSApplicationCategoryType": "public.app-category.games"])
@@ -1231,6 +1232,21 @@ final class BottleStore: ObservableObject {
         }
         removeAppleHUD(bottle)
         objectWillChange.send()  // the toggle reads a file, not a published property
+    }
+
+    /// The Sikarugir template ships the Windows user profile without Documents, Desktop, Downloads,
+    /// Music, Pictures and Videos. Games that save there fail: the Rockstar Launcher (GTA V) exits
+    /// with code 1, "Unable to launch game". Create them before every launch (cheap, idempotent).
+    static func ensureUserFolders(_ bottle: Bottle) {
+        let users = bottle.driveC.appendingPathComponent("users")
+        let fm = FileManager.default
+        for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? [] {
+            guard user.lastPathComponent != "Public",
+                  (try? user.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { continue }
+            for folder in ["Documents", "Desktop", "Downloads", "Music", "Pictures", "Videos"] {
+                try? fm.createDirectory(at: user.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+        }
     }
 
     /// Older versions turned on Apple's Metal HUD / DXVK's counter; WYNIX draws its own now.
