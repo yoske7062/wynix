@@ -220,11 +220,27 @@ record_renderer() {
   fi
 }
 
+# Last resort for stop: Windows-path processes of the Steam bottle that survived wineserverkill
+# (lsof can time out on a busy Wine, so the pid check above may miss them; seen 2026-11-19 with
+# Steam + the Rockstar launcher left running after "Close Everything").
+kill_leftover_steam_processes() {
+  local pids sig
+  for sig in TERM KILL; do
+    pids="$(/bin/ps -axo pid=,command= | /usr/bin/awk '
+      { pid=$1; $1=""; c=tolower($0); sub(/^ +/, "", c) }
+      c ~ /^[a-z]:\\/ && (c ~ /\\steam\\/ || c ~ /rockstar games/ || c ~ /steamapps\\common\\/) { print pid }')"
+    [[ -z "$pids" ]] && return 0
+    /bin/kill -"$sig" $pids 2>/dev/null || true
+    /bin/sleep 2
+  done
+}
+
 stop_wrapper() {
   /bin/rm -f "$renderer_mark" "$prewarm_mark"
   steam_client_is_running && steam_remove_autorun_live
   "$WRAPPER/Contents/MacOS/Sikarugir" WSS-wineserverkill >/dev/null 2>&1 || true
-  terminate_orphaned_steam_processes || return 1
+  terminate_orphaned_steam_processes || true
+  kill_leftover_steam_processes
   for _ in {1..20}; do
     if ! steam_is_running && ! steam_client_is_running; then
       # wineserver saves the registry as it exits; edit only after that.

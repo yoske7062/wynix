@@ -181,7 +181,7 @@ games_drive_missing || fail "a missing external library must say the games drive
 /usr/bin/grep -q 'guard !prewarmed, Prewarm.enabled, state == .ready' "$ROOT/MacSteamSetupApp.swift" || fail "prewarm call must be gated by the toggle"
 /usr/bin/grep -q 'Prewarm.key) private var prewarm = false' "$ROOT/Home.swift" || fail "Settings needs the WynixPrewarm toggle, default off (heat)"
 /usr/bin/grep -q 'isLowPowerModeEnabled' "$ROOT/MacSteamSetupApp.swift" || fail "prewarm must skip Low Power Mode"
-/usr/bin/grep -q 'Prewarm.stopIfStarted(wait: true)' "$ROOT/MacSteamSetupApp.swift" || fail "quit must close a pre-warmed Steam"
+/usr/bin/grep -q 'Prewarm.stopIfStarted(wait: false)' "$ROOT/MacSteamSetupApp.swift" || fail "quit must close a pre-warmed Steam"
 
 printf 'PASS: setup core regression tests\n'
 bash "$ROOT/Tests/protocol_integration.sh"

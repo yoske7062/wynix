@@ -1130,18 +1130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: return .terminateCancel
             }
         }
-        // Stopping Wine can take many seconds; doing it on the main thread showed the beachball.
-        // Hide the windows now and finish the cleanup in the background.
-        NSApp.windows.forEach { $0.orderOut(nil) }
-        var replied = false
-        let finish = { if !replied { replied = true; NSApp.reply(toApplicationShouldTerminate: true) } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: finish)  // never hang on a stuck Wine
-        DispatchQueue.global(qos: .userInitiated).async {
-            Prewarm.stopIfStarted(wait: true)  // only a Steam that pre-warm started
-            if closeAll { BottleStore.closeAllWindowsPrograms() }
-            DispatchQueue.main.async(execute: finish)
-        }
-        return .terminateLater
+        // Stopping Wine can take many seconds. Run the cleanup as its own process, which outlives
+        // WYNIX: the app quits at once (no beachball) and the cleanup can never be cut short.
+        Prewarm.stopIfStarted(wait: false)
+        if closeAll { BottleStore.closeAllWindowsProgramsDetached() }
+        return .terminateNow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

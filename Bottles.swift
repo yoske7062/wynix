@@ -688,6 +688,22 @@ final class BottleStore: ObservableObject {
         pkill("-KILL")
     }
 
+    /// Same as closeAllWindowsPrograms, in a separate bash process that keeps running after WYNIX quits.
+    nonisolated static func closeAllWindowsProgramsDetached() {
+        guard let script = Bundle.main.path(forResource: "setup", ofType: "sh") else { return }
+        let pattern = "Applications/Sikarugir/|Steamy Bottles/"
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        task.arguments = ["-c", """
+            /bin/bash "$1" stop >/dev/null 2>&1
+            /usr/bin/pkill -TERM -f "$2"; /bin/sleep 5; /usr/bin/pkill -KILL -f "$2"
+            """, "wynix-cleanup", script, pattern]
+        task.environment = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "USER": NSUserName()]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
+    }
+
     nonisolated static func pkill(_ signal: String) {
         let kill = Process()
         kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
