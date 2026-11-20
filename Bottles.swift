@@ -1015,11 +1015,29 @@ final class BottleStore: ObservableObject {
 
     func engine(of bottle: Bottle) -> Engine {
         let link = try? FileManager.default.destinationOfSymbolicLink(atPath: wineDir(bottle).path)
-        if let link, let match = engines.first(where: { $0.url?.path == URL(fileURLWithPath: link).standardizedFileURL.path }) {
-            return match
-        }
+        if let link, let match = Self.matchEngine(link: link, in: engines) { return match }
         return Self.bundledEngine
     }
+
+    /// The engine whose folder holds `link`: its own wine folder or any variant under it
+    /// (<engine>/variants/dxmt/wine, <engine>/variants/d3dmetal/wine).
+    static func matchEngine(link: String, in engines: [Engine]) -> Engine? {
+        let target = URL(fileURLWithPath: link).standardizedFileURL.path
+        return engines.first { engine in
+            guard let dir = engine.url?.deletingLastPathComponent().standardizedFileURL.path else { return false }
+            return target == dir || target.hasPrefix(dir + "/")
+        }
+    }
+
+    /// Where a bottle's wine link should point for this engine: the variant for its renderer when
+    /// the engine has variants (DXMT/Boost on -> dxmt, else d3dmetal), else the engine's wine folder.
+    static func linkTarget(for engine: Engine, dxmt: Bool, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> URL? {
+        guard let url = engine.url else { return nil }
+        let variant = url.deletingLastPathComponent().appendingPathComponent("variants/\(dxmt ? "dxmt" : "d3dmetal")/wine")
+        return fileExists(variant.path) ? variant : url
+    }
+
+    private func wantsDXMT(_ bottle: Bottle) -> Bool { flag(bottle, "DXMT") || boost(bottle) }
 
     /// The bottle's original engine is still around (needed to switch back to it).
     func canUseBundledEngine(_ bottle: Bottle) -> Bool {
@@ -1030,7 +1048,10 @@ final class BottleStore: ObservableObject {
     }
 
     func setEngine(_ engine: Engine, for bottle: Bottle, completion: (() -> Void)? = nil) {
-        guard engine != self.engine(of: bottle) else { completion?(); return }
+        let target = Self.linkTarget(for: engine, dxmt: wantsDXMT(bottle))
+        let current = (try? FileManager.default.destinationOfSymbolicLink(atPath: wineDir(bottle).path))
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        guard engine != self.engine(of: bottle) || (target != nil && current != target?.standardizedFileURL.path) else { completion?(); return }
         activity = "Switching \(bottle.name) to \(engine.title)…"
         launcher(bottle, ["WSS-wineserverkill"]) { [weak self] _, _ in
             guard let self else { return }
@@ -1045,7 +1066,7 @@ final class BottleStore: ObservableObject {
                     if fm.fileExists(atPath: backup.path) { try fm.removeItem(at: backup) }
                     try fm.moveItem(at: wine, to: backup)
                 }
-                if let url = engine.url {
+                if let url = target {
                     try fm.createSymbolicLink(at: wine, withDestinationURL: url)
                 } else {
                     try fm.moveItem(at: backup, to: wine)
@@ -1057,6 +1078,143 @@ final class BottleStore: ObservableObject {
             self.objectWillChange.send()
             completion?()
         }
+    }
+
+    // MARK: Wine 11 engine (Whisky Libraries)
+    //
+    // This engine's ntdll ignores WINEDLLPATH_PREPEND, so DXMT and D3DMetal only load when their files
+    // sit inside the engine. The engine therefore ships as two APFS clones (variants/dxmt, variants/d3dmetal)
+    // of one Wine folder, each with a renderer copied in; the bottle's wine link points at the variant
+    // for its renderer (setEngine here, and setup.sh before every Steam start).
+
+    static let wine11ID = "wine-11.19"
+    static let wine11URL = URL(string: "https://github.com/frankea/Whisky/releases/download/v4.8.3/Libraries.tar.gz")!
+    static let wine11SHA256 = "08ffabd7b7c352470faee2b1d51061b341316e401439ca805c5302acc2fb8818"
+    static let oldWine11ID = "steamy-wine-11.0"
+
+    /// Builds <engineDir>/variants/{dxmt,d3dmetal}/wine as clones of <engineDir>/wine. dxmt: the DXMT
+    /// bundled with the engine (<engineDir>/dxmt/{x64,x32}, from Whisky's Libraries/DXMT) goes into
+    /// lib/wine/x86_64-windows and i386-windows; its winemetal.so is the engine's own. d3dmetal: the
+    /// files of `d3dmetalRenderer` (a bottle's Contents/Frameworks/renderer/d3dmetal) go into lib/.
+    /// Same volume, so `cp -c` makes the clones nearly free; falls back to a plain copy without APFS.
+    nonisolated static func buildEngineVariants(engineDir: URL, d3dmetalRenderer: URL) throws {
+        let fm = FileManager.default
+        func run(_ tool: String, _ args: [String]) throws {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+            let err = Pipe(); p.standardError = err; p.standardOutput = FileHandle.nullDevice
+            try p.run()
+            let msg = err.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else {
+                throw NSError(domain: "WynixEngine", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey:
+                    "\(([tool] + args).joined(separator: " ")) failed: " + (String(data: msg, encoding: .utf8) ?? "")])
+            }
+        }
+        func copyInto(_ from: URL, _ to: URL) throws {  // contents of `from` into `to`, links kept as links
+            guard fm.fileExists(atPath: from.path) else {
+                throw NSError(domain: "WynixEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing \(from.path)."])
+            }
+            try fm.createDirectory(at: to, withIntermediateDirectories: true)
+            try run("/bin/cp", ["-RPf", from.path + "/.", to.path])
+        }
+        let base = engineDir.appendingPathComponent("wine")
+        guard fm.isExecutableFile(atPath: base.appendingPathComponent("bin/wine").path) else {
+            throw NSError(domain: "WynixEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Engine has no bin/wine."])
+        }
+        let staging = engineDir.appendingPathComponent(".variants-new")
+        try? fm.removeItem(at: staging)
+        for name in ["dxmt", "d3dmetal"] {
+            let wine = staging.appendingPathComponent(name + "/wine")
+            try fm.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)
+            do { try run("/bin/cp", ["-cR", base.path, wine.path]) } catch { try? fm.removeItem(at: wine); try run("/bin/cp", ["-R", base.path, wine.path]) }
+            let lib = wine.appendingPathComponent("lib/wine")
+            if name == "dxmt" {
+                try copyInto(engineDir.appendingPathComponent("dxmt/x64"), lib.appendingPathComponent("x86_64-windows"))
+                try copyInto(engineDir.appendingPathComponent("dxmt/x32"), lib.appendingPathComponent("i386-windows"))
+            } else {
+                let src = d3dmetalRenderer.appendingPathComponent("wine")
+                try copyInto(src.appendingPathComponent("x86_64-windows"), lib.appendingPathComponent("x86_64-windows"))
+                try copyInto(src.appendingPathComponent("x86_64-unix"), lib.appendingPathComponent("x86_64-unix"))
+                try run("/usr/bin/ditto", [d3dmetalRenderer.appendingPathComponent("external").path, wine.appendingPathComponent("lib/external").path])
+            }
+        }
+        let variants = engineDir.appendingPathComponent("variants")
+        try? fm.removeItem(at: variants)
+        try fm.moveItem(at: staging, to: variants)
+    }
+
+    /// Downloads (SSD temp when /Volumes/SSD exists, else the engines folder), checks the sha256,
+    /// extracts Libraries/Wine to Engines/wine-11.19/wine and builds both renderer variants from `bottle`.
+    func installWine11(from bottle: Bottle, completion: ((Bool) -> Void)? = nil) {
+        let fm = FileManager.default
+        let engineDir = Self.enginesRoot.appendingPathComponent(Self.wine11ID)
+        let ssd = URL(fileURLWithPath: "/Volumes/SSD")
+        let tempBase = fm.fileExists(atPath: ssd.path) ? ssd.appendingPathComponent("wynix-tmp") : Self.enginesRoot
+        let renderer = rendererDir(bottle).appendingPathComponent("d3dmetal")
+        // Already installed: a bottle may be running from it right now, never replace it underneath.
+        if fm.fileExists(atPath: engineDir.appendingPathComponent("variants/dxmt/wine/bin/wine").path) { reload(); completion?(true); return }
+        activity = "Installing Wine 11 (beta)…"
+        let url = Self.wine11URL.absoluteString, expected = Self.wine11SHA256
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let fm = FileManager.default
+            var failure: String?
+            let temp = tempBase.appendingPathComponent("wine11-\(UUID().uuidString)")
+            do {
+                try fm.createDirectory(at: temp, withIntermediateDirectories: true)
+                defer { try? fm.removeItem(at: temp) }
+                func run(_ tool: String, _ args: [String]) throws -> String {
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+                    let out = Pipe(); p.standardOutput = out; p.standardError = FileHandle.nullDevice
+                    try p.run()
+                    let data = out.fileHandleForReading.readDataToEndOfFile()
+                    p.waitUntilExit()
+                    guard p.terminationStatus == 0 else { throw NSError(domain: "WynixEngine", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "\(tool) failed (\(p.terminationStatus))."]) }
+                    return String(data: data, encoding: .utf8) ?? ""
+                }
+                let tar = temp.appendingPathComponent("Libraries.tar.gz")
+                _ = try run("/usr/bin/curl", ["-fsSL", "--retry", "3", "-o", tar.path, url])
+                let sum = try run("/usr/bin/shasum", ["-a", "256", tar.path]).split(separator: " ").first.map(String.init)
+                guard sum == expected else { throw NSError(domain: "WynixEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download does not match the expected checksum."]) }
+                let unpacked = temp.appendingPathComponent("x")
+                try fm.createDirectory(at: unpacked, withIntermediateDirectories: true)
+                _ = try run("/usr/bin/tar", ["-xzf", tar.path, "-C", unpacked.path])
+                let wine = unpacked.appendingPathComponent("Libraries/Wine")
+                guard fm.isExecutableFile(atPath: wine.appendingPathComponent("bin/wine").path) else { throw NSError(domain: "WynixEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unexpected archive layout."]) }
+                try? fm.removeItem(at: engineDir)
+                try fm.createDirectory(at: engineDir, withIntermediateDirectories: true)
+                try fm.moveItem(at: wine, to: engineDir.appendingPathComponent("wine"))
+                try fm.moveItem(at: unpacked.appendingPathComponent("Libraries/DXMT"), to: engineDir.appendingPathComponent("dxmt"))
+                let info = NSDictionary(contentsOf: unpacked.appendingPathComponent("Libraries/WhiskyWineVersion.plist"))
+                try ((info?["dxmtVersion"] as? String) ?? "unknown").write(to: engineDir.appendingPathComponent("dxmt-version"), atomically: true, encoding: .utf8)
+                try "Wine 11 (beta)".write(to: engineDir.appendingPathComponent("title"), atomically: true, encoding: .utf8)
+                try Self.buildEngineVariants(engineDir: engineDir, d3dmetalRenderer: renderer)
+            } catch {
+                failure = error.localizedDescription
+                try? fm.removeItem(at: engineDir)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.activity = nil
+                if let failure { self.alertMessage = "Could not install Wine 11: \(failure)" } else { self.removeOldWine11IfUnused() }
+                self.reload()
+                completion?(failure == nil)
+            }
+        }
+    }
+
+    /// The old hand-made Wine 11 engine failed; drop it only when no bottle's wine link points into it.
+    func removeOldWine11IfUnused() {
+        let fm = FileManager.default
+        let old = Self.enginesRoot.appendingPathComponent(Self.oldWine11ID)
+        guard fm.fileExists(atPath: old.path) else { return }
+        let used = bottles.contains { bottle in
+            guard let link = try? fm.destinationOfSymbolicLink(atPath: wineDir(bottle).path) else { return false }
+            let p = URL(fileURLWithPath: link).standardizedFileURL.path
+            return p == old.path || p.hasPrefix(old.path + "/")
+        }
+        if !used { try? fm.removeItem(at: old) }
     }
 
     // MARK: Native Mac apps

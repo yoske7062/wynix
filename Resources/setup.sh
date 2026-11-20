@@ -193,8 +193,32 @@ steam_remove_autorun_after_start() {
   disown 2>/dev/null || true
 }
 
+# Where the bottle's wine folder really is. With a Wine 11 engine it is a symlink to another path,
+# and Wine starts wineserver from the resolved path, so ps never shows the bottle path (seen 2026-11-20).
+wine_link_target() {
+  /usr/bin/readlink "$WRAPPER/Contents/SharedSupport/wine" 2>/dev/null || true
+}
+
 wrapper_wineserver_running() {
-  /usr/bin/pgrep -qf -- "$WRAPPER/Contents/SharedSupport/wine/lib/wine/\.\./\.\./bin/wineserver"  # pgrep never matches itself
+  local real
+  real="$(wine_link_target)"
+  /usr/bin/pgrep -qf -- "$WRAPPER/Contents/SharedSupport/wine/lib/wine/\.\./\.\./bin/wineserver" && return 0  # pgrep never matches itself
+  [[ -n "$real" ]] && /usr/bin/pgrep -qf -- "${real%/}/lib/wine/\.\./\.\./bin/wineserver"
+}
+
+# Wine 11 engines (Engines/<id>/variants/{dxmt,d3dmetal}/wine) only load a renderer that sits inside
+# the engine, so the bottle's wine link must point at the variant of the renderer about to start.
+# Never relinks while the bottle's wineserver runs.
+relink_engine_variant() {
+  local renderer="$1" link dir variant wine="$WRAPPER/Contents/SharedSupport/wine"
+  [[ -L "$wine" ]] || return 0
+  link="$(wine_link_target)"
+  dir="${link%/variants/*}"
+  [[ "$dir" != "$link" ]] || dir="${link%/wine}"   # link at <engine>/wine (no variant yet)
+  variant="$dir/variants/$renderer/wine"
+  [[ -d "$variant" && "$link" != "$variant" ]] || return 0
+  wrapper_wineserver_running && return 0
+  /bin/ln -sfn "$variant" "$wine"
 }
 
 # Turns Steam's auto-start off without racing Wine: while the bottle's wineserver runs it owns
@@ -216,11 +240,10 @@ prewarm_mark="$APP_CACHE/steam-prewarm"
 PREWARM_SECONDS="${PREWARM_SECONDS:-300}"
 record_renderer() {
   /bin/mkdir -p "$APP_CACHE"
-  if [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]]; then
-    printf 'dxmt' > "$renderer_mark"
-  else
-    printf 'd3dmetal' > "$renderer_mark"
-  fi
+  local renderer=d3dmetal
+  [[ "$(/usr/bin/plutil -extract DXMT raw "$PLIST" 2>/dev/null || true)" == "1" ]] && renderer=dxmt
+  relink_engine_variant "$renderer"   # every cold start calls this right before opening the wrapper
+  printf '%s' "$renderer" > "$renderer_mark"
 }
 
 # Last resort for stop: Windows-path processes of the Steam bottle that survived wineserverkill
