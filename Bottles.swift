@@ -488,6 +488,9 @@ final class BottleStore: ObservableObject {
             .map(Bottle.init(url:))
             .filter { fm.isExecutableFile(atPath: $0.wine.path) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        list.forEach(Self.fixPrefixPermissions)
+        // Steam Play goes through setup.sh, not launcher(): keep each injected dylib current here too.
+        for b in list where environment(b)["DYLD_INSERT_LIBRARIES"] != nil { _ = ensureUpscaler(b) }
         if list != bottles { bottles = list }  // no redraw on every app activation
         if !hudMigrated { hudMigrated = true; list.forEach(removeAppleHUD) }
         let found = scanEngines()
@@ -1256,16 +1259,21 @@ final class BottleStore: ObservableObject {
     /// The Sikarugir template ships the Windows user profile without Documents, Desktop, Downloads,
     /// Music, Pictures and Videos. Games that save there fail: the Rockstar Launcher (GTA V) exits
     /// with code 1, "Unable to launch game". Create them before every launch (cheap, idempotent).
-    static func ensureUserFolders(_ bottle: Bottle) {
-        let users = bottle.driveC.appendingPathComponent("users")
+    /// Sikarugir's own chmod pass (on wineserverkill) once left drive_c as rw-rw-rw-: no execute
+    /// bit, so no folder inside it opens and every program and Steam fail silently (2026-11-20).
+    nonisolated static func fixPrefixPermissions(_ bottle: Bottle) {
         let fm = FileManager.default
-        // Sikarugir's own chmod pass (on wineserverkill) once left drive_c as rw-rw-rw-: no execute
-        // bit, so no folder inside it opens and every program and Steam fail silently (2026-11-20).
         for dir in [bottle.prefix, bottle.driveC] {
             if let mode = (try? fm.attributesOfItem(atPath: dir.path))?[.posixPermissions] as? Int, mode & 0o111 != 0o111 {
                 try? fm.setAttributes([.posixPermissions: mode | 0o111], ofItemAtPath: dir.path)
             }
         }
+    }
+
+    static func ensureUserFolders(_ bottle: Bottle) {
+        let users = bottle.driveC.appendingPathComponent("users")
+        let fm = FileManager.default
+        fixPrefixPermissions(bottle)
         for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? [] {
             guard user.lastPathComponent != "Public",
                   (try? user.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { continue }

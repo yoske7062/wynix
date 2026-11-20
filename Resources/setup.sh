@@ -32,6 +32,9 @@ PLIST="$WRAPPER/Contents/Info.plist"
 OWNER_MARKER="$WRAPPER/Contents/.macsteamsetup-owner"
 HTML_CACHE="$WRAPPER/Contents/drive_c/users/$USER/AppData/Local/Steam/htmlcache"
 PREFIX_ROOT="$WRAPPER/Contents/SharedSupport/prefix"
+# Sikarugir's chmod pass can leave drive_c as rw-rw-rw- (no execute bit): every check below and
+# Steam itself then fail. Restore it first, in every mode (2026-11-20).
+[[ -d "$PREFIX_ROOT/drive_c" ]] && /bin/chmod a+X "$PREFIX_ROOT" "$PREFIX_ROOT/drive_c" 2>/dev/null || true
 LOCK_DIR="$APP_CACHE/setup.lock"
 STEAMAPPS="$WRAPPER/Contents/drive_c/Program Files (x86)/Steam/steamapps"
 LIBRARY_CACHE="$WRAPPER/Contents/drive_c/Program Files (x86)/Steam/appcache/librarycache"
@@ -60,8 +63,6 @@ open_wrapper() {
   if [[ "${MACSTEAM_TEST_NO_OPEN:-0}" == "1" ]]; then
     return 0
   fi
-  # Sikarugir's chmod pass can leave drive_c without the execute bit: Steam then can't start.
-  /bin/chmod a+X "$PREFIX_ROOT" "$PREFIX_ROOT/drive_c" 2>/dev/null || true
   /usr/bin/open "$WRAPPER"
 }
 
