@@ -4,7 +4,7 @@ import SwiftUI
 
 extension Color {
     init(hex: UInt32) { self.init(white: Double(hex & 0xFF) / 255) }
-    static let steamyAccent = Color.blue, onSteamyAccent = Color.white
+    static let steamyAccent = Color.blue, wynixFill = Color.pink
 }
 extension ShapeStyle where Self == Color { static var steamyAccent: Color { .blue } }
 extension Font { static func app(_ style: Font.TextStyle) -> Font { .system(style) } }

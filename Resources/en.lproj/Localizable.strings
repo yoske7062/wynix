@@ -14,7 +14,7 @@
 "error.taskTimedOut" = "That took too long and was stopped. Try again.";
 "games.createShortcut" = "Create Shortcut";
 "games.empty" = "No Installed Games";
-"games.empty.detail" = "Install a game in Windows Steam, then refresh this list.";
+"games.empty.detail" = "Open Steam, install a game there, then press Refresh.";
 "games.finding" = "Finding installed games…";
 "games.loading" = "Loading games…";
 "games.openManagement" = "Go to Home";
@@ -22,7 +22,7 @@
 "games.setupRequired.detail" = "Finish the one-time setup on Home.";
 "games.showSteam" = "Show Steam Window";
 "games.startSteam" = "Start Steam";
-"games.subtitle" = "Launch games installed in Windows Steam from your Mac.";
+"games.subtitle" = "Press Play on a game to start it.";
 "games.title" = "My Games";
 "management.hideLog" = "Hide Setup Log";
 "management.noLog" = "No log entries yet.";
@@ -38,7 +38,7 @@
 "management.tools" = "Management Tools";
 "management.userAction" = "Action Required";
 "message.checkingInstallation" = "Checking the current setup state.";
-"message.prepareSetup" = "Click Set Up Steam to download what Steam needs.";
+"message.prepareSetup" = "Press Install Steam. WYNIX downloads everything Steam needs.";
 "message.resumeSetup" = "Setup will safely continue from where it stopped.";
 "message.steamAlreadyRunning" = "Windows Steam is already running.";
 "message.steamInstallerAction" = "In the Steam installer, keep the default options and click through.";
@@ -60,16 +60,16 @@
 "phase.wrapper" = "Creating Steam App";
 "section.games" = "Games";
 "section.management" = "Management";
-"setup.prepare" = "Set Up Steam";
+"setup.prepare" = "Install Steam";
 "setup.resume" = "Resume Setup";
 "shortcut.created" = "Created the Mac game shortcut.";
 "shortcut.creating" = "Creating a shortcut for %@…";
 "status.canResume" = "Setup Can Resume";
 "status.checking" = "Checking Setup State";
-"status.readyToInstall" = "Ready to Set Up";
+"status.readyToInstall" = "Steam isn't installed yet";
 "status.setupFailed" = "Setup Was Not Completed";
-"status.steamReady" = "Windows Steam Ready";
-"steam.open" = "Open Windows Steam";
+"status.steamReady" = "Steam is ready";
+"steam.open" = "Open Steam";
 "steam.running" = "Windows Steam Running";
 "alert.error.title" = "Something went wrong";
 "bottle.creating" = "Creating bottle %@… (the first one downloads Wine, 1-3 min)";

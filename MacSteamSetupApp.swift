@@ -458,27 +458,42 @@ struct ContentView: View {
         return nil
     }
 
-    var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section("Library") {
-                    Label("Home", systemImage: "house.fill").tag(AppSection.management)
-                    Label(L10n.string("section.games"), systemImage: "gamecontroller.fill").tag(AppSection.games)
-                }
-                Section("Bottles") {
-                    ForEach(store.bottles) { bottle in
-                        BottleSidebarRow(store: store, bottle: bottle) { selection = .management }
-                            .tag(AppSection.bottle(bottle.id))
+    /// Glass sidebar like the reference: a slim icon rail and a text list, both over the streak.
+    private var sidebar: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(spacing: 14) {
+                Color.clear.frame(height: 72)  // window buttons and the logo row
+                RailButton(icon: "house", label: "Home", selected: selection == .management) { selection = .management }
+                RailButton(icon: "gamecontroller", label: L10n.string("section.games"), selected: selection == .games) { selection = .games }
+                RailButton(icon: "plus.square", label: "Install a Windows App") { showInstall = true }
+                RailButton(icon: "bolt", label: "Make Games Faster") { showOptimize = true }
+                Spacer()
+                SettingsLink { Image(systemName: "gearshape").font(.system(size: 17, weight: .light)).frame(width: 40, height: 40) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel("Settings").help("Settings")
+            }
+            .frame(width: 64)
+            .padding(.bottom, 16)
+
+            VStack(alignment: .leading, spacing: 0) {
+                SpinningW()
+                    .padding(.top, 40).padding(.bottom, 22)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SidebarHeader("Library")
+                        SidebarItem(title: "Home", selected: selection == .management) { selection = .management }
+                        SidebarItem(title: L10n.string("section.games"), selected: selection == .games) { selection = .games }
+                        SidebarHeader("Windows Spaces").padding(.top, 16)
+                        ForEach(store.bottles) { bottle in
+                            // Keeps the row's right-click menu (Show in Finder, Duplicate, Move, Rename, Delete).
+                            BottleSidebarRow(store: store, bottle: bottle) { selection = .management }
+                                .sidebarRow(selected: selection == .bottle(bottle.id)) { selection = .bottle(bottle.id) }
+                        }
+                        SidebarItem(title: "New Windows Space…", selected: false, secondary: true) { showNewBottle = true }
                     }
                 }
-            }
-            .safeAreaInset(edge: .top) {
-                SpinningW()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14).padding(.top, 2).padding(.bottom, 6)
-            }
-            .safeAreaInset(edge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
+                .scrollIndicators(.never)
+                VStack(alignment: .leading, spacing: 8) {
                     if let activity = store.activity {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
@@ -486,44 +501,49 @@ struct ContentView: View {
                         }
                     }
                     UpdateButton()
-                    Button { showOptimize = true } label: {
-                        Label("Optimize", systemImage: "bolt.fill").font(.app(.title3)).foregroundStyle(.steamyAccent)
-                    }
-                    Button { showInstall = true } label: {
-                        Label("Install from File", systemImage: "plus.app.fill").font(.app(.title3))
-                    }
-                    Button { showNewBottle = true } label: {
-                        Label("New Bottle", systemImage: "shippingbox")
-                    }
-                    SettingsLink {
-                        Label("Settings", systemImage: "gearshape")
-                    }
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
+                .padding(.bottom, 16)
             }
-            .navigationTitle("WYNIX")
-            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
-        } detail: {
-            switch selection ?? .games {
-            case .games:
-                GameLibraryView(model: model, store: store) {
-                    selection = .management
+            .frame(width: 176, alignment: .leading)
+            .padding(.trailing, 8)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            AuroraBackground()
+            HStack(spacing: 0) {
+                sidebar
+                Group {
+                    switch selection ?? .games {
+                    case .games:
+                        GameLibraryView(model: model, store: store) {
+                            selection = .management
+                        }
+                    case .management:
+                        HomeView(model: model, store: store,
+                                 openBottle: { selection = .bottle($0.id) },
+                                 confirmStop: { showStopConfirmation = true },
+                                 openGames: { selection = .games },
+                                 installApp: { showInstall = true },
+                                 optimize: { showOptimize = true })
+                    case .bottle(let id):
+                        if let bottle = store.bottles.first(where: { $0.id == id }) {
+                            BottleView(store: store, bottle: bottle) { selection = .games }
+                                .id(bottle.id)
+                        } else {
+                            ContentUnavailableView("Bottle Not Found", systemImage: "shippingbox")
+                        }
+                    }
                 }
-            case .management:
-                HomeView(model: model, store: store,
-                         openBottle: { selection = .bottle($0.id) },
-                         confirmStop: { showStopConfirmation = true })
-            case .bottle(let id):
-                if let bottle = store.bottles.first(where: { $0.id == id }) {
-                    BottleView(store: store, bottle: bottle) { selection = .games }
-                        .id(bottle.id)
-                } else {
-                    ContentUnavailableView("Bottle Not Found", systemImage: "shippingbox")
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // One clear glass panel holds every screen; the light streak shows through it.
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .clearGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .padding(.vertical, 12).padding(.trailing, 12)
             }
         }
+        .ignoresSafeArea()
         .frame(minWidth: 1080, minHeight: 680)
         .onAppear { Updater.shared.start() }
         // Drag a .exe/.msi anywhere onto the window to open Install Software with it.
@@ -545,7 +565,7 @@ struct ContentView: View {
         }
         .onChange(of: model.state) { _, state in
             if state == .ready { store.reload() }
-            if state == .ready, selection == .games {
+            if state == .ready, selection == .games || selection == .management {  // Home shows the library too
                 model.loadGames()
             } else if state == .notInstalled || state == .partial || state == .failed, selectedBottleID == nil, tutorialDone {  // never yank the tour
                 selection = .management
@@ -585,12 +605,11 @@ struct ContentView: View {
 }
 
 /// Steam library art card (600x900 cover from Steam's CDN, falls back to header art, then the icon).
-/// Sidebar wordmark, same as the website: metallic pink W that flips around + "YNIX" in white,
+/// Sidebar wordmark, same as the website: metallic pink W that flips once + "YNIX" in white,
 /// wide black type (system font, expanded width).
 struct SpinningW: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var angle = 0.0
-    @State private var sweep = -1.0
 
     private let font = Font.system(size: 24, weight: .black).width(.expanded)
 
@@ -599,27 +618,7 @@ struct SpinningW: View {
             .foregroundStyle(LinearGradient(
                 colors: [Color(hex: 0xC94470), Color(hex: 0xE05A83), Color(hex: 0xFFD3E0), Color(hex: 0xE05A83), Color(hex: 0xC94470)],
                 startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay {
-                GeometryReader { g in
-                    LinearGradient(colors: [.clear, Color(hex: 0xFFE4EC).opacity(0.95), .clear],
-                                   startPoint: .leading, endPoint: .trailing)
-                        .frame(width: g.size.width * 0.6)
-                        .offset(x: sweep * g.size.width)
-                }
-                .mask(Text("W").font(font))
-            }
-            .shadow(color: Color(hex: 0xE05A83).opacity(0.5), radius: 8)
             .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
-    }
-
-    private func animate(_ on: Bool) {
-        guard on, !reduceMotion else {
-            var still = Transaction(); still.disablesAnimations = true
-            withTransaction(still) { angle = 0; sweep = -1 }
-            return
-        }
-        withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) { angle = 360 }
-        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) { sweep = 1.1 }
     }
 
     var body: some View {
@@ -628,11 +627,11 @@ struct SpinningW: View {
             Text("YNIX").font(font).foregroundStyle(.primary)
         }
         .tracking(-0.6)
-        // Animate only while WYNIX is the active app: a visible window behind a game would
-        // otherwise redraw this every frame for the whole session.
-        .onAppear { animate(NSApp.isActive) }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in animate(true) }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in animate(false) }
+        .onAppear {
+            guard !reduceMotion else { return }
+            // One flip when the window opens, then it stays still.
+            withAnimation(.easeOut(duration: 0.9)) { angle = 360 }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("WYNIX")
     }
@@ -670,7 +669,7 @@ struct GameCoverCard: View {
             .clipped()
             .scaleEffect(hovering ? 1.04 : 1)
 
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
                 .allowsHitTesting(false)
 
             Button(action: play) {
@@ -681,10 +680,10 @@ struct GameCoverCard: View {
                         Text("Play")
                     }
                 }
-                .font(.app(.title3).weight(.medium))
+                .font(.app(.body).weight(.semibold))
                 .foregroundStyle(.black)
-                .frame(maxWidth: .infinity).padding(.vertical, 9)
-                .background(.white, in: RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity).padding(.vertical, 7)
+                .background(.white, in: RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
             .disabled(disabled)
@@ -692,10 +691,11 @@ struct GameCoverCard: View {
             .padding(12)
         }
         .aspectRatio(2/3, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(hovering ? 0.6 : 0.1)))
         .overlay(alignment: .topTrailing) { DLSSBadge(level: dlss).padding(8) }
         .help(name)
-        .onHover { h in withAnimation(.easeOut(duration: 0.4)) { hovering = h } }
+        .onHover { h in withAnimation(.easeOut(duration: 0.2)) { hovering = h } }
     }
 
     private var fallback: some View {
@@ -854,6 +854,7 @@ struct GameLibraryView: View {
                     }
                 }
             }
+            .tint(.primary)  // header buttons stay neutral; color comes from the game art
             .padding(.bottom, 22)
 
             if model.state == .checking {
@@ -869,7 +870,7 @@ struct GameLibraryView: View {
                     Text(L10n.string("games.setupRequired.detail"))
                 } actions: {
                     Button(L10n.string("games.openManagement"), action: openManagement)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).tint(.wynixFill)
                 }
                 Spacer()
             } else if model.operationInProgress && model.games.isEmpty {
@@ -887,7 +888,7 @@ struct GameLibraryView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 16)], spacing: 18) {
                         ForEach(visibleGames) { game in
                             let isHidden = hidden.contains(game.id)
                             GameCoverCard(game: game,
@@ -1155,7 +1156,8 @@ struct MacSteamSetupApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
         WindowGroup { RootView() }
+            .windowStyle(.hiddenTitleBar)
             .windowResizability(.contentMinSize)
-        Settings { SettingsView() }
+        Settings { SettingsView().tint(.steamyAccent) }
     }
 }

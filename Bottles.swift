@@ -1966,6 +1966,7 @@ struct BottleView: View {
     @State private var openingID: String?
     @State private var pendingLaunch: WinProgram?
     @State private var renaming: WinProgram?
+    @AppStorage("showAdvancedOptions") private var advanced = false
 
     /// Opens a program with visible feedback: Wine apps can take several seconds to appear.
     private func launch(_ program: WinProgram, checkOptimized: Bool = true) {
@@ -1986,8 +1987,14 @@ struct BottleView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
-                    Text(bottle.name).font(.app(.largeTitle).bold())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(bottle.name).font(.app(.largeTitle).bold())
+                        Text(store.scanning.contains(bottle.id) ? "Looking for programs…"
+                             : "The Windows programs in this space. Double-click one to open it.")
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
+                    if advanced {
                     Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
                         GridRow {
                             Text("Bottle Type:").foregroundStyle(.secondary).gridColumnAlignment(.trailing)
@@ -1999,24 +2006,25 @@ struct BottleView: View {
                         }
                     }
                     .font(.app(.caption))
+                    }
                 }
                 .padding(.bottom, 14)
                 Divider()
 
                 if programs.isEmpty && !store.scanning.contains(bottle.id) {
                     ContentUnavailableView {
-                        Label("No Applications", systemImage: "square.dashed")
+                        Label("Nothing Installed Yet", systemImage: "square.dashed")
                     } description: {
-                        Text("Install software or add an existing .exe to this bottle.")
+                        Text("Install a Windows program (.exe or .msi) and it shows up here.")
                     } actions: {
                         Button("Install Software…") { if let f = store.pickFile(in: nil) { store.install(f, in: bottle) } }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.borderedProminent).tint(.wynixFill)
                         Button("Add Application…") { if let f = store.pickFile(in: bottle) { store.addProgram(f, to: bottle) } }
                     }
                     .frame(maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 22) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130, maximum: 160), spacing: 16)], spacing: 16) {
                             ForEach(programs) { program in
                                 ProgramTile(program: program, name: store.displayName(program, in: bottle), opening: openingID == program.id)
                                     .onTapGesture(count: 2) { launch(program) }
@@ -2106,6 +2114,7 @@ struct ProgramTile: View {
     var name = ""
     var opening = false
     @State private var pulse = false
+    @State private var hovering = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -2142,6 +2151,11 @@ struct ProgramTile: View {
                 .lineLimit(2)
         }
         .frame(width: 130)
+        .padding(.vertical, 12)
+        .background {
+            if hovering { RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.6)) }
+        }
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
         .contentShape(Rectangle())
         .help(program.path)
         .accessibilityElement(children: .ignore)
@@ -2228,7 +2242,7 @@ struct BottleSidePanel: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                    .tint(.wynixFill).foregroundStyle(.white)
                     SettingRow("Engine") {
                         Picker("", selection: Binding(
                             get: { store.engine(of: bottle) },
@@ -2413,7 +2427,7 @@ struct BottleSidePanel: View {
                             icon: "arrow.down.app.fill", tint: .blue) {
                 if let f = store.pickFile(in: nil) { store.install(f, in: bottle) }
             }
-            BigActionButton(title: "Support WYNIX ☕", detail: "WYNIX is free. A coffee on Ko-fi helps keep it going (nothing is locked)",
+            BigActionButton(title: "Support WYNIX", detail: "WYNIX is free. A coffee on Ko-fi helps keep it going (nothing is locked)",
                             icon: "heart.fill", tint: .pink) {
                 NSWorkspace.shared.open(URL(string: "https://ko-fi.com/wynix")!)
             }
@@ -2424,11 +2438,11 @@ struct BottleSidePanel: View {
                             icon: optimized ? "checkmark.circle.fill" : "bolt.fill", tint: .steamyAccent) {
                 store.optimizeForGaming(bottle) { loadMacDriver() }
             }
-            BigActionButton(title: "Something Not Working?", detail: "Closes everything in this bottle and restarts it",
+            BigActionButton(title: "Something Not Working?", detail: "Closes everything in this space and starts it again",
                             icon: "wrench.and.screwdriver.fill", tint: .orange) {
                 store.launcher(bottle, ["WSS-wineserverkill"]) { _, _ in store.launcher(bottle, ["WSS-wineboot"]) }
             }
-            BigActionButton(title: "Open Files", detail: "See this bottle's C: drive in Finder",
+            BigActionButton(title: "Open Files", detail: "See this space's Windows files in Finder",
                             icon: "folder.fill", tint: .gray) {
                 NSWorkspace.shared.open(bottle.driveC)
             }
@@ -2440,20 +2454,11 @@ struct BottleSidePanel: View {
                 macDriver["RetinaMode"] = on ? "y" : "n"
                 store.importRegistry(bottle, [BottleStore.macDriverKey: ["RetinaMode": on ? "\"y\"" : "\"n\""]])
             }
-            simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to your screen's shape, up to 1080p.",
-                         isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
-            simpleToggle("Record performance (benchmark)", detail: "Saves frame times while you play and shows average FPS, 1% low and frame time when the game ends",
+            simpleToggle("Show FPS while playing", detail: "A small counter in the top right: frames per second, CPU, GPU, memory and temperature",
+                         isOn: store.hudOn(bottle)) { store.setHUD(bottle, $0) }
+            simpleToggle("Measure how smooth a game runs", detail: "When you close the game you get its average FPS",
                          isOn: store.benchmarking(bottle)) { store.setBenchmarking(bottle, $0) }
             benchmarkList
-            simpleToggle("DirectX 11 compatibility mode", detail: "Only for DirectX 11 games that look wrong or run worse with the default.",
-                         isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
-            if D3DMetalSwap.stagedAvailable, let version = store.d3dmetalVersion(bottle) {
-                simpleToggle("Use D3DMetal 3.0 (compatibility)",
-                             detail: "D3DMetal 4 (beta) is the default. Turn this on if a game crashes or looks wrong. Using D3DMetal \(version)",
-                             isOn: store.wantsD3DMetal3(bottle)) { store.setD3DMetal4(bottle, on: !$0) }
-            }
-            simpleToggle("Show performance HUD", detail: "FPS, CPU, GPU, memory and temperature, small in the top right while you play",
-                         isOn: store.hudOn(bottle)) { store.setHUD(bottle, $0) }
             simpleToggle("Mac Keyboard Shortcuts", detail: "⌘C, ⌘V and ⌘Z work like on your Mac",
                          isOn: macDriver["LeftCommandIsCtrl"]?.lowercased() == "y") { on in
                 let v = on ? "y" : "n"
@@ -2469,6 +2474,21 @@ struct BottleSidePanel: View {
                 }
             }
 
+            DisclosureGroup("Fixes for games that look wrong") {
+                VStack(alignment: .leading, spacing: 10) {
+                    simpleToggle("Boost (MetalFX upscaling)", detail: "Pick a lower resolution in the game (like 1280×720 or 1600×900); MetalFX upscales it to your screen's shape, up to 1080p.",
+                                 isOn: store.upscaleDX12(bottle)) { store.setUpscaleDX12(bottle, $0) }
+                    simpleToggle("DirectX 11 compatibility mode", detail: "Only for DirectX 11 games that look wrong or run worse with the default.",
+                                 isOn: store.boost(bottle)) { store.setBoost(bottle, $0) }
+                    if D3DMetalSwap.stagedAvailable, let version = store.d3dmetalVersion(bottle) {
+                        simpleToggle("Use D3DMetal 3.0 (compatibility)",
+                                     detail: "D3DMetal 4 (beta) is the default. Turn this on if a game crashes or looks wrong. Using D3DMetal \(version)",
+                                     isOn: store.wantsD3DMetal3(bottle)) { store.setD3DMetal4(bottle, on: !$0) }
+                    }
+                }
+                .padding(.top, 8)
+            }
+
             Divider().padding(.vertical, 4)
 
             Button { advanced = true } label: {
@@ -2479,7 +2499,7 @@ struct BottleSidePanel: View {
 
             if !bottle.isSteam {
                 Button(role: .destructive) { confirmDelete = true } label: {
-                    Label("Delete Bottle…", systemImage: "trash").frame(maxWidth: .infinity)
+                    Label("Delete This Space…", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
             }
@@ -2567,7 +2587,7 @@ struct BottleSidebarRow: View {
     @State private var showRename = false
 
     var body: some View {
-        Label(bottle.name, systemImage: "shippingbox.fill")
+        Label(bottle.name, systemImage: "shippingbox")
             .contextMenu {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([bottle.url]) }
                 Button("Duplicate") { store.duplicate(bottle) }
@@ -2606,15 +2626,16 @@ struct BigActionButton: View {
     let icon: String
     let tint: Color
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.steamyAccent)
-                    .frame(width: 40, height: 40)
-                    .background(Color.steamyAccent.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
+                    .font(.system(size: 16))
+                    .foregroundStyle(tint == .steamyAccent ? Color.steamyAccent : .secondary)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.app(.body).weight(.semibold))
                     Text(detail).font(.app(.caption)).foregroundStyle(.secondary).lineLimit(2)
@@ -2622,10 +2643,11 @@ struct BigActionButton: View {
                 Spacer(minLength: 0)
             }
             .padding(8)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .background(.primary.opacity(hovering ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
     }
 }
 
@@ -2888,7 +2910,7 @@ struct OptimizeSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                .tint(.wynixFill).foregroundStyle(.white)
                 .disabled(store.bottles.isEmpty)
             }
         }
@@ -2968,7 +2990,7 @@ struct InstallSheet: View {
                 Text("Drop a Windows installer here").font(.app(.title3).bold())
                 Text(".exe or .msi — or choose a file").font(.app(.callout)).foregroundStyle(.secondary)
                 Button("Choose File…") { choose() }
-                    .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                    .buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white)
                     .accessibilityLabel("Choose installer file")
             }
         }
@@ -3019,7 +3041,7 @@ struct InstallSheet: View {
                     if let file, let bottle = selectedBottle { store.install(file, in: bottle) }
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                .buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white)
                 .keyboardShortcut(.defaultAction)
                 .disabled(file == nil || bottleID == nil)
                 .accessibilityLabel("Install software into the selected bottle")
