@@ -6,7 +6,6 @@ extension Color {
     init(hex: UInt32) { self.init(white: Double(hex & 0xFF) / 255) }
     static let steamyAccent = Color.blue, wynixFill = Color.pink
 }
-extension View { func wynixGlass<S: Shape>(in shape: S) -> some View { background(.regularMaterial, in: shape) } }
 extension ShapeStyle where Self == Color { static var steamyAccent: Color { .blue } }
 extension Font { static func app(_ style: Font.TextStyle) -> Font { .system(style) } }
 

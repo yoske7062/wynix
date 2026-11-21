@@ -1,31 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// WYNIX's start screen: your games first, then the stores and your bottles.
+/// WYNIX's start screen: a calm greeting with the next thing to do, then your games, stores and spaces.
 struct HomeView: View {
     @ObservedObject var model: InstallerModel
     @ObservedObject var store: BottleStore
     let openBottle: (Bottle) -> Void
     let confirmStop: () -> Void
     var openGames: () -> Void = {}
+    var installApp: () -> Void = {}
+    var optimize: () -> Void = {}
 
     @State private var search = ""
     /// Same list the Games tab hides (comma-separated Steam App IDs).
     @AppStorage("hiddenGames") private var hiddenRaw = ""
-
-    private struct CatalogItem: Identifiable {
-        let name: String
-        let detail: String
-        let icon: String
-        let tint: Color
-        var id: String { name }
-    }
+    @AppStorage(Tutorial.doneKey) private var tutorialDone = false
 
     private func matches(_ text: String) -> Bool {
         search.isEmpty || text.localizedCaseInsensitiveContains(search)
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 14, alignment: .top)]
+
+    private var games: [SteamGame] {
+        let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
+        return model.games.filter { !hidden.contains($0.id) }
+    }
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
@@ -35,158 +35,180 @@ struct HomeView: View {
         }
     }
 
+    private var firstName: String {
+        NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    /// One line: what to do next.
+    private var prompt: String {
+        switch model.state {
+        case .ready: games.isEmpty ? "Install a game in Steam and it shows up here." : "What are we playing today?"
+        case .installing: "Installing Steam. This takes a few minutes."
+        case .checking: "Getting things ready…"
+        default: "Let's start by installing Steam."
+        }
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(greeting).font(.app(.largeTitle).bold())
-                        Text("Your Windows games, at home on your Mac.")
-                            .foregroundStyle(.secondary)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 48) {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                            TextField("Search stores and apps", text: $search).textFieldStyle(.plain)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .frame(width: 260)
+                        .clearGlass(in: Capsule())
                     }
-                    Spacer(minLength: 20)
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                        TextField("Search stores and bottles", text: $search)
-                            .textFieldStyle(.plain)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .frame(maxWidth: 280)
-                    .wynixGlass(in: Capsule())
-                }
+                    .padding(.bottom, -40)
+                    if search.isEmpty { hero { withAnimation(.easeOut(duration: 0.35)) { proxy.scrollTo("stores", anchor: .top) } } }
+                    if model.state == .ready && !games.isEmpty && search.isEmpty { continuePlaying }
 
-                if model.state != .ready && model.state != .checking {
-                    steamSetupCard
-                } else if model.state == .ready {
-                    libraryHero
-                }
-
-                section("Stores") {
-                    if matches("Steam Valve") { steamCard }
-                    ForEach(BottleStore.launchers.filter { matches($0.name + " " + $0.detail) }) { launcher in
-                        let bottle = store.bottles.first { $0.name == launcher.name }
-                        // Installed only once the launcher shows up in the bottle's Start Menu; an
-                        // empty bottle (failed or cancelled install) offers Install again.
-                        let installed = bottle.map { !(store.programs[$0.id] ?? []).isEmpty } ?? false
-                        CatalogCard(title: launcher.name, detail: launcher.detail, icon: launcher.icon, tint: launcher.brand,
-                                    logo: launcher.logo,
-                                    actionTitle: installed ? "Open" : "Install",
-                                    busy: store.activity != nil && !installed) {
-                            if installed, let bottle { openBottle(bottle) } else { store.installLauncher(launcher) }
+                    section("Stores") {
+                        if matches("Steam Valve") { steamCard }
+                        ForEach(BottleStore.launchers.filter { matches($0.name + " " + $0.detail) }) { launcher in
+                            let bottle = store.bottles.first { $0.name == launcher.name }
+                            // Installed only once the launcher shows up in the bottle's Start Menu; an
+                            // empty bottle (failed or cancelled install) offers Install again.
+                            let installed = bottle.map { !(store.programs[$0.id] ?? []).isEmpty } ?? false
+                            CatalogCard(title: launcher.name, detail: launcher.detail, icon: launcher.icon, tint: launcher.brand,
+                                        logo: launcher.logo,
+                                        actionTitle: installed ? "Open" : "Install",
+                                        busy: store.activity != nil && !installed) {
+                                if installed, let bottle { openBottle(bottle) } else { store.installLauncher(launcher) }
+                            }
                         }
                     }
-                }
+                    .id("stores")
 
-                let bottles = store.bottles.filter { matches($0.name) }
-                if !bottles.isEmpty {
-                    section("Your Bottles") {
-                        ForEach(bottles) { bottle in
-                            CatalogCard(title: bottle.name,
-                                        detail: "\(store.programs[bottle.id]?.count ?? 0) apps · \(store.graphics(bottle).rawValue) graphics",
-                                        icon: "shippingbox.fill", tint: .gray, actionTitle: "Open") { openBottle(bottle) }
+                    let bottles = store.bottles.filter { matches($0.name) }
+                    if !bottles.isEmpty {
+                        section("Windows Spaces") {
+                            ForEach(bottles) { bottle in
+                                let count = store.programs[bottle.id]?.count ?? 0
+                                CatalogCard(title: bottle.name,
+                                            detail: "Its own Windows space · \(count) \(count == 1 ? "program" : "programs")",
+                                            icon: "shippingbox", tint: .gray, actionTitle: "Open") { openBottle(bottle) }
+                            }
                         }
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.string("disclaimer.compatibility"))
-                    Text("Unofficial. Not affiliated with Valve, Apple, CodeWeavers or Sikarugir.")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.string("disclaimer.compatibility"))
+                        Text("Unofficial. Not affiliated with Valve, Apple, CodeWeavers or Sikarugir.")
+                    }
+                    .font(.app(.caption))
+                    .foregroundStyle(.secondary)
                 }
-                .font(.app(.caption))
-                .foregroundStyle(.secondary)
+                .padding(.horizontal, 40).padding(.vertical, 28)
+                .frame(maxWidth: 1080)
+                .frame(maxWidth: .infinity)
             }
-            .padding(32)
         }
-        .onAppear {
-            store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } }
-        }
+        .onAppear { store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } } }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.app(.title2).bold())
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) { content() }
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.app(.title3).weight(.semibold))
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) { content() }
         }
     }
 
-    // MARK: Library hero
+    // MARK: Greeting
 
-    /// Big banner with the first game's Steam art and a strip of covers. Tapping goes to the
-    /// library, where Play (with its DirectX profile check) lives.
-    private var libraryHero: some View {
-        let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
-        let games = model.games.filter { !hidden.contains($0.id) }
-        return ZStack(alignment: .bottomLeading) {
-            Group {
-                if let first = games.first {
-                    AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(first.id)/library_hero.jpg")) { phase in
-                        if let image = phase.image { image.resizable().scaledToFill() } else { WynixBackdrop(intensity: 2) }
-                    }
-                } else {
-                    WynixBackdrop(intensity: 2)
-                }
+    private func hero(showStores: @escaping () -> Void) -> some View {
+        VStack(spacing: 22) {
+            WynixMark().frame(width: 128, height: 128).accessibilityHidden(true)
+            VStack(spacing: 6) {
+                (Text(greeting + (firstName.isEmpty ? "" : ", ")).fontWeight(.light) + Text(firstName).fontWeight(.semibold))
+                    .font(.app(size: 36))
+                Text(prompt).font(.app(size: 36, weight: .light)).foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, minHeight: 250, maxHeight: 250)
-            .clipped()
-            .accessibilityHidden(true)
+            .multilineTextAlignment(.center)
 
-            LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.15)], startPoint: .bottomLeading, endPoint: .topTrailing)
-                .allowsHitTesting(false)
-
-            HStack(alignment: .bottom, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label(model.isSteamRunning ? "Steam is running" : "Steam is ready",
-                          systemImage: model.isSteamRunning ? "dot.radiowaves.left.and.right" : "checkmark.circle.fill")
-                        .font(.app(.caption).weight(.semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .wynixGlass(in: Capsule())
-                    Text(games.isEmpty ? "Your library" : "Jump back in")
-                        .font(.app(.largeTitle).bold())
-                    Text(games.isEmpty ? "Install a game in Steam and it shows up here."
-                                       : "\(games.count) \(games.count == 1 ? "game" : "games") ready to play")
-                        .foregroundStyle(.white.opacity(0.85))
-                    HStack(spacing: 10) {
-                        if !games.isEmpty {
-                            Button(action: openGames) {
-                                Label("Open Library", systemImage: "square.grid.2x2.fill").padding(.horizontal, 6)
-                            }
-                            .wynixGlassButton(prominent: true)
-                        }
-                        Button(action: model.openSteam) {
-                            Label(model.isSteamRunning ? "Show Steam" : "Open Steam", systemImage: "play.fill").padding(.horizontal, 6)
-                        }
-                        .wynixGlassButton(prominent: games.isEmpty)
-                        .disabled(model.isBusy)
-                    }
-                    .controlSize(.large)
-                }
-                .foregroundStyle(.white)
-                Spacer(minLength: 0)
-                if !games.isEmpty {
-                    HStack(spacing: 12) {
-                        ForEach(games.prefix(4)) { game in
-                            Button(action: openGames) {
-                                AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(game.id)/library_600x900.jpg")) { phase in
-                                    if let image = phase.image { image.resizable().scaledToFill() } else { Color.white.opacity(0.12) }
-                                }
-                                .frame(width: 92, height: 138)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.18)))
-                                .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
-                            }
-                            .buttonStyle(LiftButtonStyle())
-                            .help(game.name)
-                            .accessibilityLabel("\(game.name), open library")
-                        }
-                    }
-                }
+            if model.state == .ready && games.isEmpty {
+                StepsLine(current: 2)
+            } else if model.state != .ready && model.state != .checking {
+                StepsLine(current: 1)
             }
-            .padding(24)
+
+            chips(showStores: showStores)
+
+            if model.state == .installing {
+                VStack(spacing: 6) {
+                    ProgressView(value: model.progress, total: 100)
+                        .tint(model.needsUserAction ? .orange : .primary)
+                    Text(model.transferText.isEmpty ? model.message : model.transferText)
+                        .font(.app(.caption)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 420)
+            } else if model.state == .failed || model.state == .partial {
+                Text(model.message).font(.app(.caption)).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center).frame(maxWidth: 520)
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.1)))
-        .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
-        .environment(\.colorScheme, .dark)  // white text over art in both appearances
+        .frame(maxWidth: .infinity)
+        .padding(.top, 36)
+    }
+
+    @ViewBuilder private func chips(showStores: @escaping () -> Void) -> some View {
+        let tour = { tutorialDone = false }
+        let row = Group {
+            switch model.state {
+            case .ready:
+                if games.isEmpty {
+                    Chip(title: model.isSteamRunning ? "Show Steam" : "Open Steam", icon: "play.fill", primary: true, action: model.openSteam)
+                        .disabled(model.isBusy)
+                } else {
+                    Chip(title: "Play a game", icon: "play.fill", primary: true, action: openGames)
+                    Chip(title: model.isSteamRunning ? "Show Steam" : "Open Steam", icon: "macwindow", action: model.openSteam)
+                        .disabled(model.isBusy)
+                }
+                Chip(title: "Add a store", icon: "bag", action: showStores)
+                Chip(title: "Install a Windows app", icon: "plus.square", action: installApp)
+                if !games.isEmpty {
+                    Chip(title: "Make games faster", icon: "bolt", action: optimize)
+                } else {
+                    Chip(title: "Take the tour", icon: "sparkles", action: tour)
+                }
+            case .notInstalled, .partial, .failed:
+                Chip(title: model.primaryTitle, icon: "arrow.down.circle", primary: true, action: model.primaryAction)
+                    .disabled(model.isBusy)
+                Chip(title: "Other stores", icon: "bag", action: showStores)
+                Chip(title: "Install a Windows app", icon: "plus.square", action: installApp)
+                Chip(title: "Take the tour", icon: "sparkles", action: tour)
+            case .installing, .checking:
+                EmptyView()
+            }
+        }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { row }
+            VStack(spacing: 10) { row }
+        }
+    }
+
+    // MARK: Games
+
+    private var continuePlaying: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your games").font(.app(.title3).weight(.semibold))
+                Spacer()
+                Button("Show All", action: openGames).buttonStyle(.link).foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(games.prefix(12)) { game in
+                        LibraryCover(game: game, action: openGames)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
     }
 
     // MARK: Steam
@@ -198,38 +220,113 @@ struct HomeView: View {
                 ? (model.isSteamRunning ? "Running" : "Installed and ready")
                 : "Valve's store and your Steam library",
             icon: "cloud.fill", tint: Color(hex: 0x1B2838), logo: "steam",
-            actionTitle: model.state == .ready ? (model.isSteamRunning ? "Show" : "Open") : "Set Up Steam",
+            actionTitle: model.state == .ready ? (model.isSteamRunning ? "Show" : "Open") : "Install",
             busy: model.isBusy
         ) {
             if model.state == .ready { model.openSteam() } else { model.primaryAction() }
         }
     }
-
-    private var steamSetupCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            StatusCard(model: model)
-            if model.state == .installing {
-                ProgressView(value: model.progress, total: 100)
-                    .tint(model.needsUserAction ? .orange : .steamyAccent)
-                if !model.transferText.isEmpty {
-                    Text(model.transferText).font(.app(.caption)).foregroundStyle(.secondary)
-                }
-            } else {
-                Button(action: model.primaryAction) {
-                    Text(model.primaryTitle).frame(maxWidth: .infinity).padding(.vertical, 4)
-                }
-                .wynixGlassButton(prominent: true)
-                .controlSize(.large)
-                .disabled(model.isBusy)
-            }
-        }
-        .padding(20)
-        .wynixGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
 }
 
-/// Store or bottle tile: big logo, name, short line and a capsule action.
+/// "1 Install Steam › 2 Sign in › 3 Press Play", with the current step lit.
+struct StepsLine: View {
+    let current: Int
+
+    var body: some View {
+        HStack(spacing: 10) {
+            step(1, "Install Steam")
+            Image(systemName: "chevron.right").font(.app(.caption)).foregroundStyle(.tertiary)
+            step(2, "Sign in and get a game")
+            Image(systemName: "chevron.right").font(.app(.caption)).foregroundStyle(.tertiary)
+            step(3, "Press Play")
+        }
+        .font(.app(.callout))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(current) of 3. 1, Install Steam. 2, Sign in and get a game. 3, Press Play.")
+    }
+
+    private func step(_ n: Int, _ title: String) -> some View {
+        HStack(spacing: 6) {
+            ZStack {
+                Circle().strokeBorder(.primary.opacity(n == current ? 0.9 : 0.25))
+                if n < current {
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                } else {
+                    Text("\(n)").font(.system(size: 10, weight: .semibold))
+                }
+            }
+            .frame(width: 18, height: 18)
+            Text(title)
+        }
+        .foregroundStyle(n == current ? Color.primary : Color.secondary)
+    }
+}
+
+/// Outline capsule with a small WYNIX-pink line icon; the one `primary` chip per screen has a brighter edge.
+struct Chip: View {
+    let title: String
+    let icon: String
+    var tint: Color = .steamyAccent
+    var primary = false
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundStyle(primary ? Color.primary : tint)
+                    .accessibilityHidden(true)
+                Text(title).lineLimit(1)
+            }
+            .font(.app(.body).weight(primary ? .semibold : .regular))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 18).padding(.vertical, 11)
+            .background(.primary.opacity(hovering ? 0.1 : primary ? 0.07 : 0.03), in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(primary ? 0.45 : 0.18)))
+            .contentShape(Capsule())
+            .opacity(enabled ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
+    }
+}
+
+/// One game cover: art and the name under it.
+struct LibraryCover: View {
+    let game: SteamGame
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(game.id)/library_600x900.jpg")) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            Color.primary.opacity(0.08)
+                            Text(game.name).font(.app(.caption)).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center).padding(8)
+                        }
+                    }
+                }
+                .frame(width: 124, height: 186)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(hovering ? 0.6 : 0.1)))
+                Text(game.name).font(.app(.callout)).foregroundStyle(.secondary).lineLimit(1).frame(width: 124, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
+        .help(game.name)
+        .accessibilityLabel("\(game.name), show in Games")
+    }
+}
+
+/// Store or space tile: logo, name, one line, and its action as a small capsule.
 struct CatalogCard: View {
     let title: String
     let detail: String
@@ -246,93 +343,209 @@ struct CatalogCard: View {
             HStack(alignment: .top) {
                 Group {
                     if let logo, let image = BrandLogo.image(logo) {
-                        Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(11)
+                        Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(9)
+                            .foregroundStyle(.white)
+                            .background(tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     } else {
-                        Image(systemName: icon).font(.system(size: 22, weight: .semibold)).accessibilityHidden(true)
+                        Image(systemName: icon).font(.system(size: 17, weight: .light)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.primary.opacity(0.15)))
+                            .accessibilityHidden(true)
                     }
                 }
-                .foregroundStyle(.white)
-                .frame(width: 48, height: 48)
-                .background(logo == nil ? AnyShapeStyle(Color.wynixFill.gradient) : AnyShapeStyle(tint.gradient),
-                            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .shadow(color: (logo == nil ? Color.wynixFill : tint).opacity(0.35), radius: 8, y: 4)
+                .frame(width: 40, height: 40)
                 Spacer(minLength: 8)
-                // Plain bordered capsule for Install: glass on a glass card washes out in Light Mode.
-                if actionTitle == "Install" {
-                    Button(actionTitle, action: action).buttonStyle(.bordered).buttonBorderShape(.capsule)
-                        .disabled(busy).accessibilityLabel("\(actionTitle) \(title)")
-                } else {
-                    Button(actionTitle, action: action).wynixGlassButton(prominent: true)
-                        .disabled(busy).accessibilityLabel("\(actionTitle) \(title)")
+                Button(action: action) {
+                    Text(actionTitle).font(.app(.callout).weight(.medium))
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .overlay(Capsule().strokeBorder(.primary.opacity(0.2)))
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .opacity(busy ? 0.45 : 1)
+                .accessibilityLabel("\(actionTitle) \(title)")
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.app(.title3).weight(.semibold)).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.app(.body).weight(.semibold)).lineLimit(1)
                 Text(detail).font(.app(.caption)).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
             }
         }
-        .padding(16)
-        .wynixGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .scaleEffect(hovering ? 1.02 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hovering)
-        .onHover { hovering = $0 }
+        .padding(14)
+        .background(.primary.opacity(hovering ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.primary.opacity(0.09)))
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
     }
 }
 
-/// Press/hover feedback for art tiles: a small spring lift.
-struct LiftButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        LiftBody(configuration: configuration)
-    }
-    private struct LiftBody: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hovering = false
-        var body: some View {
-            configuration.label
-                .scaleEffect(configuration.isPressed ? 0.96 : hovering ? 1.05 : 1)
-                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: hovering)
-                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
-                .onHover { hovering = $0 }
+/// The WYNIX W from the app icon: one rounded pink stroke with a soft glow, on a clear glass tile.
+struct WynixMark: View {
+    var body: some View {
+        ZStack {
+            Color.clear.clearGlass(in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+            WShape()
+                .stroke(LinearGradient(colors: [Color(hex: 0xFFD3E0), Color(hex: 0xE05A83), Color(hex: 0xC94470), Color(hex: 0xE88AA6), Color(hex: 0xFFE4EC)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                .frame(width: 78, height: 34)
+                .shadow(color: Color(hex: 0xE05A83).opacity(0.85), radius: 14)
         }
     }
 }
 
-/// The soft WYNIX-pink glow behind content, so Liquid Glass has some colour to refract.
-struct WynixBackdrop: View {
-    var intensity = 1.0
+/// The icon's W: down, up, down, up, with the middle peak a little higher than the ends.
+struct WShape: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY + r.height * 0.06))
+        p.addLine(to: CGPoint(x: r.minX + r.width * 0.24, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.minX + r.width * 0.76, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.minY + r.height * 0.06))
+        return p
+    }
+}
+
+/// Slow light streaks behind the glass. Paused under Reduce Motion and whenever the window
+/// isn't frontmost (so it never draws while a game is playing).
+struct AuroraBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let a = (scheme == .dark ? 0.22 : 0.12) * intensity
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            RadialGradient(colors: [Color(hex: 0xE05A83).opacity(a), .clear], center: .topLeading, startRadius: 0, endRadius: 650)
-            RadialGradient(colors: [Color(hex: 0x7A4BD6).opacity(a * 0.6), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 700)
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || activeState == .inactive)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Canvas { g, size in
+                let dark = scheme == .dark
+                // A wide soft glow plus a narrow bright core make one light ribbon.
+                // WYNIX rose: a wide soft glow plus a narrow bright core make one light ribbon.
+                streak(&g, size, t: t, period: 40, color: Color(hex: 0xC94470), alpha: dark ? 0.7 : 0.22, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.22)
+                streak(&g, size, t: t, period: 40, color: Color(hex: 0xFFB3C9), alpha: dark ? 0.45 : 0.18, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.03)
+                streak(&g, size, t: t + 17, period: 52, color: Color(hex: 0x7A1F4A), alpha: dark ? 0.6 : 0.12, base: CGPoint(x: 0.95, y: 0.02), angle: -12, thickness: 0.12)
+            }
         }
+        .background(scheme == .dark ? Color(hex: 0x070507) : Color(hex: 0xF4F0F2))
         .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+
+    /// A soft elongated glow that drifts on a slow loop.
+    private func streak(_ g: inout GraphicsContext, _ size: CGSize, t: Double, period: Double, color: Color,
+                        alpha: Double, base: CGPoint, angle: Double, thickness: Double) {
+        let phase = (t.truncatingRemainder(dividingBy: period)) / period * 2 * .pi
+        let center = CGPoint(x: size.width * (base.x + 0.08 * sin(phase)), y: size.height * (base.y + 0.06 * cos(phase)))
+        let r = max(size.width, size.height) * 0.75
+        var layer = g
+        layer.translateBy(x: center.x, y: center.y)
+        layer.rotate(by: .degrees(angle + 6 * sin(phase)))
+        layer.scaleBy(x: 1, y: thickness)
+        layer.fill(Path(ellipseIn: CGRect(x: -r, y: -r, width: 2 * r, height: 2 * r)),
+                   with: .radialGradient(Gradient(colors: [color.opacity(alpha), color.opacity(alpha * 0.35), .clear]),
+                                         center: .zero, startRadius: 0, endRadius: r))
+    }
+}
+
+struct SidebarHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+    var body: some View {
+        Text(title).font(.app(.caption)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.bottom, 2)
+    }
+}
+
+/// A text row in the sidebar list; the selected one sits on a soft glass pill.
+struct SidebarItem: View {
+    let title: String
+    let selected: Bool
+    var secondary = false
+    let action: () -> Void
+
+    var body: some View {
+        Text(title).lineLimit(1)
+            .foregroundStyle(secondary ? .secondary : .primary)
+            .sidebarRow(selected: selected, action: action)
+    }
+}
+
+struct SidebarRowStyle: ViewModifier {
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .font(.app(.body).weight(selected ? .semibold : .regular))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background {
+                if selected {
+                    Color.clear.clearGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.06))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .onHover { hovering = $0 }
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction(.default, action)
+    }
+}
+
+/// Round icon button in the slim rail; the selected one is a glass circle.
+struct RailButton: View {
+    let icon: String
+    let label: String
+    var selected = false
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: selected ? .regular : .light))
+                .foregroundStyle(selected ? .primary : .secondary)
+                .frame(width: 40, height: 40)
+                .background {
+                    if selected {
+                        Color.clear.clearGlass(in: Circle())
+                    } else if hovering {
+                        Circle().fill(.primary.opacity(0.06))
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 
 extension View {
-    /// Liquid Glass on macOS 26+, a material on older systems (deployment target is macOS 14).
-    @ViewBuilder func wynixGlass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+    func sidebarRow(selected: Bool, action: @escaping () -> Void) -> some View {
+        modifier(SidebarRowStyle(selected: selected, action: action))
+    }
+
+    /// See-through glass with a thin light edge, like the reference: clear Liquid Glass on
+    /// macOS 26+, an ultra-thin material on older systems.
+    @ViewBuilder func clearGlass<S: InsettableShape>(in shape: S) -> some View {
+        let edge = shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.38), .white.opacity(0.06), .white.opacity(0.16)],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
         if #available(macOS 26, *) {
-            glassEffect(Glass.regular.tint(tint), in: shape)
+            glassEffect(.clear, in: shape).overlay(edge)
         } else {
-            background(.regularMaterial, in: shape)
+            background(.ultraThinMaterial.opacity(0.6), in: shape).overlay(edge)
         }
     }
 
-    /// Glass button on macOS 26+ (prominent ones are solid WYNIX-pink capsules), bordered on older systems.
-    @ViewBuilder func wynixGlassButton(prominent: Bool = false) -> some View {
+    /// Liquid Glass on macOS 26+, a material on older systems (deployment target is macOS 14).
+    @ViewBuilder func wynixGlass<S: Shape>(in shape: S) -> some View {
         if #available(macOS 26, *) {
-            if prominent {
-                buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(.wynixFill).foregroundStyle(.white)
-            } else {
-                buttonStyle(.glass)
-            }
+            glassEffect(.regular, in: shape)
         } else {
-            if prominent { buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white) } else { buttonStyle(.bordered) }
+            background(.ultraThinMaterial, in: shape)
         }
     }
 }
@@ -400,12 +613,18 @@ enum TextSize: Double, CaseIterable, Identifiable {
 }
 
 extension Font {
+    /// Fixed-size text that still follows the app's Text Size setting.
+    static func app(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        let stored = UserDefaults.standard.double(forKey: "textScale")
+        return .system(size: size * (stored == 0 ? 1 : stored), weight: weight)
+    }
+
     /// macOS ignores Dynamic Type, so Steamy scales its own text styles from Settings.
     static func app(_ style: Font.TextStyle) -> Font {
         let stored = UserDefaults.standard.double(forKey: "textScale")
         let scale = stored == 0 ? 1 : stored
         let base: CGFloat = switch style {
-        case .largeTitle: 30
+        case .largeTitle: 26
         case .title: 22
         case .title2: 17
         case .title3: 15
@@ -464,11 +683,11 @@ struct SettingsView: View {
                 .help("Steam starts hidden so Play only has to hand over the game. It closes by itself if you don't start a game within 5 minutes, or when WYNIX quits. Skipped on low battery or Low Power Mode.")
             Toggle("Show advanced bottle options by default", isOn: $advanced)
             Button("Show the WYNIX tour again") { tutorialDone = false }
-            Link("Support WYNIX on Ko-fi ☕ (optional, nothing is locked)", destination: URL(string: "https://ko-fi.com/wynix")!)
+            Link("Support WYNIX on Ko-fi (optional, nothing is locked)", destination: URL(string: "https://ko-fi.com/wynix")!)
             Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.app/legal.html")!)
 
             Section("Help") {
-                HelpItem("Home", "Game stores and your bottles. Press Set Up Steam once, then Open it and sign in with your normal account.")
+                HelpItem("Home", "Game stores and your bottles. Press Install Steam once, then Open it and sign in with your normal account.")
                 HelpItem("Games", "Every Steam game you installed. Press Play: WYNIX detects DirectX 11 or 12 and recommends the best settings. Right click a game to make a Dock shortcut or hide it.")
                 HelpItem("Bottles", "A bottle is a small Windows setup that lives inside WYNIX. Each one keeps its own programs and settings, so a broken game can't mess up the rest.")
                 HelpItem("Install from File", "Runs any Windows installer (.exe or .msi), games or not. The program shows up in the bottle and in ~/Applications like a Mac app.")
