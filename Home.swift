@@ -282,9 +282,8 @@ struct Chip: View {
             .font(.app(.body).weight(primary ? .semibold : .regular))
             .foregroundStyle(Color.primary)
             .padding(.horizontal, 18).padding(.vertical, 11)
-            .clearGlass(in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(primary ? 0.5 : 0)))
-            .background(.white.opacity(hovering ? 0.08 : 0), in: Capsule())
+            .background(.primary.opacity(hovering ? 0.1 : primary ? 0.07 : 0.03), in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(primary ? 0.45 : 0.18)))
             .contentShape(Capsule())
             .opacity(enabled ? 1 : 0.45)
         }
@@ -372,8 +371,8 @@ struct CatalogCard: View {
             }
         }
         .padding(14)
-        .clearGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .background(.white.opacity(hovering ? 0.06 : 0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.primary.opacity(hovering ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.primary.opacity(0.09)))
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
     }
 }
@@ -500,16 +499,14 @@ extension View {
         modifier(SidebarRowStyle(selected: selected, action: action))
     }
 
-    /// See-through glass with a thin light edge, like the reference: clear Liquid Glass on
-    /// macOS 26+, an ultra-thin material on older systems.
+    /// See-through glass with a thin light edge, like the reference.
     @ViewBuilder func clearGlass<S: InsettableShape>(in shape: S) -> some View {
-        let edge = shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.1), .white.opacity(0.28)],
+        let edge = shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.38), .white.opacity(0.06), .white.opacity(0.16)],
                                                      startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
-        if #available(macOS 26, *) {
-            glassEffect(.clear, in: shape).overlay(edge)
-        } else {
-            background(.ultraThinMaterial.opacity(0.6), in: shape).overlay(edge)
-        }
+        // A thin frost at low opacity: the light behind stays clearly visible, just softened.
+        background(.white.opacity(0.03), in: shape)
+            .background(.ultraThinMaterial.opacity(0.3), in: shape)
+            .overlay(edge)
     }
 
     /// Liquid Glass on macOS 26+, a material on older systems (deployment target is macOS 14).
