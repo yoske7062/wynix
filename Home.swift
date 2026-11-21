@@ -122,7 +122,6 @@ struct HomeView: View {
 
     private func hero(showStores: @escaping () -> Void) -> some View {
         VStack(spacing: 22) {
-            WynixMark().frame(width: 128, height: 128).accessibilityHidden(true)
             VStack(spacing: 6) {
                 (Text(greeting + (firstName.isEmpty ? "" : ", ")).fontWeight(.light) + Text(firstName).fontWeight(.semibold))
                     .font(.app(size: 36))
@@ -152,7 +151,7 @@ struct HomeView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 36)
+        .padding(.top, 64)
     }
 
     @ViewBuilder private func chips(showStores: @escaping () -> Void) -> some View {
@@ -283,8 +282,9 @@ struct Chip: View {
             .font(.app(.body).weight(primary ? .semibold : .regular))
             .foregroundStyle(Color.primary)
             .padding(.horizontal, 18).padding(.vertical, 11)
-            .background(.primary.opacity(hovering ? 0.1 : primary ? 0.07 : 0.03), in: Capsule())
-            .overlay(Capsule().strokeBorder(.primary.opacity(primary ? 0.45 : 0.18)))
+            .clearGlass(in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(primary ? 0.5 : 0)))
+            .background(.white.opacity(hovering ? 0.08 : 0), in: Capsule())
             .contentShape(Capsule())
             .opacity(enabled ? 1 : 0.45)
         }
@@ -372,37 +372,9 @@ struct CatalogCard: View {
             }
         }
         .padding(14)
-        .background(.primary.opacity(hovering ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.primary.opacity(0.09)))
+        .clearGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.white.opacity(hovering ? 0.06 : 0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
-    }
-}
-
-/// The WYNIX W from the app icon: one rounded pink stroke with a soft glow, on a clear glass tile.
-struct WynixMark: View {
-    var body: some View {
-        ZStack {
-            Color.clear.clearGlass(in: RoundedRectangle(cornerRadius: 34, style: .continuous))
-            WShape()
-                .stroke(LinearGradient(colors: [Color(hex: 0xFFD3E0), Color(hex: 0xE05A83), Color(hex: 0xC94470), Color(hex: 0xE88AA6), Color(hex: 0xFFE4EC)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
-                .frame(width: 78, height: 34)
-                .shadow(color: Color(hex: 0xE05A83).opacity(0.85), radius: 14)
-        }
-    }
-}
-
-/// The icon's W: down, up, down, up, with the middle peak a little higher than the ends.
-struct WShape: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.minY + r.height * 0.06))
-        p.addLine(to: CGPoint(x: r.minX + r.width * 0.24, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.midX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.minX + r.width * 0.76, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.minY + r.height * 0.06))
-        return p
     }
 }
 
@@ -420,9 +392,9 @@ struct AuroraBackground: View {
                 let dark = scheme == .dark
                 // A wide soft glow plus a narrow bright core make one light ribbon.
                 // WYNIX rose: a wide soft glow plus a narrow bright core make one light ribbon.
-                streak(&g, size, t: t, period: 40, color: Color(hex: 0xC94470), alpha: dark ? 0.7 : 0.22, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.22)
-                streak(&g, size, t: t, period: 40, color: Color(hex: 0xFFB3C9), alpha: dark ? 0.45 : 0.18, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.03)
-                streak(&g, size, t: t + 17, period: 52, color: Color(hex: 0x7A1F4A), alpha: dark ? 0.6 : 0.12, base: CGPoint(x: 0.95, y: 0.02), angle: -12, thickness: 0.12)
+                streak(&g, size, t: t, period: 40, color: Color(hex: 0xF08FB0), alpha: dark ? 0.75 : 0.3, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.24)
+                streak(&g, size, t: t, period: 40, color: Color(hex: 0xFFE0EA), alpha: dark ? 0.6 : 0.3, base: CGPoint(x: 0.35, y: 0.62), angle: -22, thickness: 0.035)
+                streak(&g, size, t: t + 17, period: 52, color: Color(hex: 0xE88AA6), alpha: dark ? 0.5 : 0.2, base: CGPoint(x: 0.95, y: 0.02), angle: -12, thickness: 0.14)
             }
         }
         .background(scheme == .dark ? Color(hex: 0x070507) : Color(hex: 0xF4F0F2))
@@ -531,7 +503,7 @@ extension View {
     /// See-through glass with a thin light edge, like the reference: clear Liquid Glass on
     /// macOS 26+, an ultra-thin material on older systems.
     @ViewBuilder func clearGlass<S: InsettableShape>(in shape: S) -> some View {
-        let edge = shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.38), .white.opacity(0.06), .white.opacity(0.16)],
+        let edge = shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.1), .white.opacity(0.28)],
                                                      startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
         if #available(macOS 26, *) {
             glassEffect(.clear, in: shape).overlay(edge)

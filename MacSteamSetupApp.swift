@@ -507,6 +507,9 @@ struct ContentView: View {
             .frame(width: 176, alignment: .leading)
             .padding(.trailing, 8)
         }
+        // The sidebar is its own glass pane too.
+        .clearGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(12)
     }
 
     var body: some View {
