@@ -159,6 +159,7 @@ final class EmulatorStore: ObservableObject {
     }
 
     func uninstall(_ e: Emulator) {
+        guard busy == nil else { return }
         let fm = FileManager.default
         try? fm.removeItem(at: e.appURL)
         try? fm.removeItem(at: e.versionFile)
@@ -167,6 +168,7 @@ final class EmulatorStore: ObservableObject {
     }
 
     func open(_ e: Emulator) {
+        guard busy == nil else { return }
         if e.id == "ps4" { try? Self.configureShadPS4(e, settings: false) }  // repair core selection only
         NSWorkspace.shared.openApplication(at: e.appURL, configuration: NSWorkspace.OpenConfiguration())
     }
@@ -186,6 +188,9 @@ final class EmulatorStore: ObservableObject {
         let fm = FileManager.default
         try fm.createDirectory(at: Emulator.appsRoot, withIntermediateDirectories: true)
         try fm.createDirectory(at: Emulator.stateRoot, withIntermediateDirectories: true)
+        // Leftovers from an install interrupted by a quit or crash.
+        for old in (try? fm.contentsOfDirectory(at: Emulator.stateRoot, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent.hasPrefix(".download-") { try? fm.removeItem(at: old) }
         let work = Emulator.stateRoot.appendingPathComponent(".download-\(UUID().uuidString)")
         try fm.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: work) }
@@ -224,8 +229,12 @@ final class EmulatorStore: ObservableObject {
             try fm.moveItem(at: core, to: e.coreDir)
         }
         // Same volume: remove + move. Never re-sign: Ryujinx needs its hypervisor/JIT entitlements.
-        try? fm.removeItem(at: e.appURL)
-        try fm.moveItem(at: newApp, to: e.appURL)
+        let backup = work.appendingPathComponent("previous.app")
+        let hadApp = (try? fm.moveItem(at: e.appURL, to: backup)) != nil
+        do { try fm.moveItem(at: newApp, to: e.appURL) } catch {
+            if hadApp { try? fm.moveItem(at: backup, to: e.appURL) }  // keep the working install
+            throw error
+        }
         try e.version.write(to: e.versionFile, atomically: true, encoding: .utf8)
         if e.id == "ps4" {
             // An update leaves the previous WYNIX core behind: drop it so the launcher moves on.
@@ -250,7 +259,11 @@ final class EmulatorStore: ObservableObject {
         try fm.createDirectory(at: Emulator.shadUserDir, withIntermediateDirectories: true)
 
         let versionsURL = Emulator.shadLauncherDir.appendingPathComponent("versions.json")
-        let list = (try? JSONSerialization.jsonObject(with: Data(contentsOf: versionsURL))) as? [[String: Any]] ?? []
+        let list: [[String: Any]]
+        if let data = try? Data(contentsOf: versionsURL) {
+            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }  // not ours to fix
+            list = parsed
+        } else { list = [] }
         let versionsDir = e.coreDir.deletingLastPathComponent().path
         let updated = EmulatorConfig.addVersion(list.filter { entry in
             let path = entry["path"] as? String ?? ""
@@ -261,7 +274,9 @@ final class EmulatorStore: ObservableObject {
         let iniURL = Emulator.shadLauncherDir.appendingPathComponent("qt_ui.ini")
         var ini = (try? String(contentsOf: iniURL, encoding: .utf8)) ?? ""
         let selected = EmulatorConfig.getINI(ini, section: "version_manager", key: "versionSelected") ?? ""
-        if selected != exe, selected.isEmpty || !fm.fileExists(atPath: selected) || EmulatorConfig.isWynixCore(selected, versionsDir: versionsDir) {
+        // A quoted/escaped QSettings value or CRLF file came from the launcher itself: leave it.
+        let editable = !selected.contains("\"") && !ini.contains("\r")
+        if editable, selected != exe, selected.isEmpty || !fm.fileExists(atPath: selected) || EmulatorConfig.isWynixCore(selected, versionsDir: versionsDir) {
             ini = EmulatorConfig.setINI(ini, section: "version_manager", key: "versionPath", value: e.coreDir.deletingLastPathComponent().path)
             ini = EmulatorConfig.setINI(ini, section: "version_manager", key: "versionSelected", value: exe)
             try ini.write(to: iniURL, atomically: true, encoding: .utf8)
@@ -269,7 +284,11 @@ final class EmulatorStore: ObservableObject {
 
         guard settings else { return }
         let configURL = Emulator.shadUserDir.appendingPathComponent("config.json")
-        let config = (try? JSONSerialization.jsonObject(with: Data(contentsOf: configURL))) as? [String: Any] ?? [:]
+        var config: [String: Any] = [:]
+        if let data = try? Data(contentsOf: configURL) {
+            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            config = parsed
+        }
         let merged = EmulatorConfig.merge(config, EmulatorConfig.shadPS4Patch)
         try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]).write(to: configURL)
     }

@@ -75,7 +75,7 @@ struct HomeView: View {
                                 if version == nil || emulatorStore.needsUpdate(emu) { emulatorStore.install(emu) } else { emulatorStore.open(emu) }
                             }
                             .contextMenu {
-                                if version != nil {
+                                if version != nil, emulatorStore.busy == nil {
                                     Button("Open") { emulatorStore.open(emu) }
                                     Button("Reinstall \(emu.version)") { emulatorStore.install(emu) }
                                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([emu.appURL]) }
