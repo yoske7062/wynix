@@ -347,6 +347,72 @@ enum RegistryFile {
 // MARK: - Store
 
 /// Output collected from a child process on a background queue.
+/// DXMT (DirectX 11 -> Metal) newer than the one Sikarugir bottles ship (0.74). 0.80 measured faster in a
+/// D3D11 test in the Steam bottle (499/508/685 vs 419/151/291 FPS, 2026-11-21) and Steam drew with it.
+/// Only for bottles on their own Wine 10 engine: on the Wine 11 engines 0.80 did not load as builtin.
+enum DXMTUpdate {
+    static let version = "v0.80"
+    static let url = "https://github.com/3Shain/dxmt/releases/download/v0.80/dxmt-v0.80-builtin.tar.gz"
+    static let sha256 = "8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d"
+    static var staged: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Steamy/DXMT/\(version)")
+    }
+    static var stagedAvailable: Bool {
+        FileManager.default.fileExists(atPath: staged.appendingPathComponent("x86_64-unix/winemetal.so").path)
+    }
+
+    static func needsUpdate(renderer: URL) -> Bool {
+        let current = (try? String(contentsOf: renderer.appendingPathComponent("dxmt/version"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let current, current.hasPrefix("v") else { return false }  // no DXMT in this bottle
+        return current.compare(version, options: .numeric) == .orderedAscending
+    }
+
+    /// Blocking: download, verify, extract to `staged`.
+    static func downloadAndStage() throws {
+        let fm = FileManager.default
+        let work = staged.deletingLastPathComponent().appendingPathComponent(".download-\(UUID().uuidString)")
+        try fm.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: work) }
+        func run(_ exe: String, _ args: [String]) throws {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
+            try p.run(); p.waitUntilExit()
+            guard p.terminationStatus == 0 else { throw CocoaError(.fileReadUnknown) }
+        }
+        let archive = work.appendingPathComponent("dxmt.tar.gz")
+        try run("/usr/bin/curl", ["--connect-timeout", "20", "--fail", "--location", "--retry", "2", "--silent", "--output", archive.path, url])
+        guard D3DMetalSwap.verify(archive, expected: sha256) else { throw CocoaError(.fileReadCorruptFile) }
+        try run("/usr/bin/tar", ["-xzf", archive.path, "-C", work.path])
+        let out = work.appendingPathComponent(version)
+        guard fm.fileExists(atPath: out.appendingPathComponent("x86_64-unix/winemetal.so").path) else { throw CocoaError(.fileReadCorruptFile) }
+        try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", out.path])
+        try? fm.removeItem(at: staged)
+        try fm.moveItem(at: out, to: staged)
+    }
+
+    /// Replaces renderer/dxmt/wine with the staged build. The old folder stays as renderer/dxmt-<old>
+    /// for a one-step rollback (rename it back).
+    static func apply(renderer: URL) throws {
+        let fm = FileManager.default
+        let dxmt = renderer.appendingPathComponent("dxmt")
+        guard needsUpdate(renderer: renderer), stagedAvailable else { return }
+        let old = (try? String(contentsOf: dxmt.appendingPathComponent("version"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "old"
+        let backup = renderer.appendingPathComponent("dxmt-\(old)")
+        let temp = renderer.appendingPathComponent(".dxmt-new")
+        try? fm.removeItem(at: temp)
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto"); ditto.arguments = [dxmt.path, temp.path]
+        try ditto.run(); ditto.waitUntilExit()
+        guard ditto.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
+        try fm.removeItem(at: temp.appendingPathComponent("wine"))
+        try fm.copyItem(at: staged, to: temp.appendingPathComponent("wine"))
+        try version.write(to: temp.appendingPathComponent("version"), atomically: true, encoding: .utf8)
+        if !fm.fileExists(atPath: backup.path) { try fm.moveItem(at: dxmt, to: backup) } else { try fm.removeItem(at: dxmt) }
+        try fm.moveItem(at: temp, to: dxmt)
+    }
+}
+
 final class LockedData: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = Data()
@@ -864,6 +930,7 @@ final class BottleStore: ObservableObject {
         setEnvironment(bottle, "MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", "1")
         setPlist(bottle, ["FASTMATH": 1])
         writeDXMTConfig(bottle, boost: boost(bottle))
+        updateDXMT(bottle)
         // Steam bottle: MetalFX upscaling is the default; only an explicit off (key = 0) or DXMT Boost skips it.
         if bottle.isSteam && plistDictionary(bottle)["WynixUpscaleDX12"] == nil && !boost(bottle) {
             setUpscaleDX12(bottle, true, notify: false)
@@ -1450,6 +1517,18 @@ final class BottleStore: ObservableObject {
     // MARK: D3DMetal 4 (beta) with 3.0 fallback
 
     private func rendererDir(_ bottle: Bottle) -> URL { bottle.contents.appendingPathComponent("Frameworks/renderer") }
+
+    /// Brings the bottle's DXMT up to DXMTUpdate.version (downloads once). Skipped while Wine runs and on
+    /// bottles linked to a shared Wine 11 engine.
+    func updateDXMT(_ bottle: Bottle) {
+        let renderer = rendererDir(bottle)
+        let linked = (try? FileManager.default.destinationOfSymbolicLink(atPath: wineDir(bottle).path)) != nil
+        guard !linked, !Self.windowsProgramsRunning, DXMTUpdate.needsUpdate(renderer: renderer) else { return }
+        DispatchQueue.global(qos: .utility).async {
+            if !DXMTUpdate.stagedAvailable { try? DXMTUpdate.downloadAndStage() }
+            try? DXMTUpdate.apply(renderer: renderer)
+        }
+    }
 
     func d3dmetalVersion(_ bottle: Bottle) -> String? { D3DMetalSwap.version(renderer: rendererDir(bottle)) }
 

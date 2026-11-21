@@ -35,6 +35,24 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         let skipped = BenchRun.parse("# wynix-bench v1 upscale=0\n" + (Array(repeating: "10", count: 500) + Array(repeating: "20", count: 100)).joined(separator: "\n"))!
         precondition(skipped.frames == 100 && skipped.medianMs == 20 && skipped.summary.contains("Boost off"), "bench skip")
         precondition(BenchRun.parse("nope\n1\n2") == nil && BenchRun.parse("# wynix-bench v1 x\n10\n") == nil)
+        // DXMT update: only older versions, never a bottle without DXMT; apply keeps a rollback copy.
+        let dfm = FileManager.default
+        let r = dfm.temporaryDirectory.appendingPathComponent("dxmt-check-\(UUID().uuidString)")
+        try! dfm.createDirectory(at: r.appendingPathComponent("dxmt/wine/x86_64-unix"), withIntermediateDirectories: true)
+        try! "v0.74".write(to: r.appendingPathComponent("dxmt/version"), atomically: true, encoding: .utf8)
+        precondition(DXMTUpdate.needsUpdate(renderer: r), "0.74 needs update")
+        try! "v0.80".write(to: r.appendingPathComponent("dxmt/version"), atomically: true, encoding: .utf8)
+        precondition(!DXMTUpdate.needsUpdate(renderer: r), "0.80 is current")
+        try! "v1.0".write(to: r.appendingPathComponent("dxmt/version"), atomically: true, encoding: .utf8)
+        precondition(!DXMTUpdate.needsUpdate(renderer: r), "never downgrade")
+        precondition(!DXMTUpdate.needsUpdate(renderer: r.appendingPathComponent("none")), "no DXMT, no update")
+        if DXMTUpdate.stagedAvailable {
+            try! "v0.74".write(to: r.appendingPathComponent("dxmt/version"), atomically: true, encoding: .utf8)
+            try! DXMTUpdate.apply(renderer: r)
+            precondition(dfm.fileExists(atPath: r.appendingPathComponent("dxmt-v0.74/version").path), "rollback copy kept")
+            precondition(dfm.fileExists(atPath: r.appendingPathComponent("dxmt/wine/x86_64-unix/winemetal.so").path), "0.80 installed")
+        }
+        try? dfm.removeItem(at: r)
         let app = (try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? ""
         let src = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
         precondition(src.contains("completion?(-1, \"\")"), "launcher missing-bottle guard must call completion")
