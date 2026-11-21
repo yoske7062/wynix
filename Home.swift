@@ -9,6 +9,7 @@ struct HomeView: View {
     let confirmStop: () -> Void
 
     @State private var search = ""
+    @StateObject private var emulatorStore = EmulatorStore()
 
     private struct CatalogItem: Identifiable {
         let name: String
@@ -61,6 +62,32 @@ struct HomeView: View {
                     }
                 }
 
+                let emulators = Emulator.all.filter { matches($0.name + " " + $0.detail + " emulator") }
+                if !emulators.isEmpty {
+                    section("Emulators") {
+                        ForEach(emulators) { emu in
+                            let version = emulatorStore.installed[emu.id]
+                            CatalogCard(title: emu.name,
+                                        detail: emulatorStore.busy == emu.id ? "Downloading and installing…" : (emu.supported ? emu.detail : "Needs macOS \(emu.minimumMacOS) or later"),
+                                        icon: "gamecontroller.fill", tint: .gray,
+                                        actionTitle: version == nil ? "Install" : (emulatorStore.needsUpdate(emu) ? "Update" : "Open"),
+                                        busy: emulatorStore.busy != nil || !emu.supported) {
+                                if version == nil || emulatorStore.needsUpdate(emu) { emulatorStore.install(emu) } else { emulatorStore.open(emu) }
+                            }
+                            .contextMenu {
+                                if version != nil {
+                                    Button("Open") { emulatorStore.open(emu) }
+                                    Button("Reinstall \(emu.version)") { emulatorStore.install(emu) }
+                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([emu.appURL]) }
+                                    Button("Uninstall (keeps saves and settings)", role: .destructive) { emulatorStore.uninstall(emu) }
+                                }
+                            }
+                        }
+                    }
+                    Text("Emulators are native Mac apps, not bottles. WYNIX never downloads keys, firmware, BIOS or games: dump them from a console you own. Right-click a card to update or uninstall.")
+                        .font(.app(.caption)).foregroundStyle(.secondary)
+                }
+
                 let bottles = store.bottles.filter { matches($0.name) }
                 if !bottles.isEmpty {
                     section("Your Bottles") {
@@ -82,6 +109,10 @@ struct HomeView: View {
             .padding(28)
         }
         .onAppear { store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } } }
+        .alert("Emulators", isPresented: Binding(get: { emulatorStore.alertMessage != nil },
+                                                 set: { if !$0 { emulatorStore.alertMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(emulatorStore.alertMessage ?? "") }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

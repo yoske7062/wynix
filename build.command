@@ -8,7 +8,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 /bin/rm -rf "$APP/Contents/Resources/ko.lproj"
 /usr/bin/swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos14.0 \
   -framework SwiftUI -framework AppKit -framework Combine \
-  "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" "$SCRIPT_DIR/Updater.swift" \
+  "$SCRIPT_DIR/MacSteamSetupApp.swift" "$SCRIPT_DIR/Bottles.swift" "$SCRIPT_DIR/Home.swift" "$SCRIPT_DIR/Tutorial.swift" "$SCRIPT_DIR/Updater.swift" "$SCRIPT_DIR/Emulators.swift" \
   -o "$APP/Contents/MacOS/MacSteamSetup"
 /usr/bin/strip -x "$APP/Contents/MacOS/MacSteamSetup"
 # DirectX 12 Boost: injected into Wine. Universal so arm64 child processes load it too.

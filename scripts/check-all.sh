@@ -11,5 +11,6 @@ step updater swift Tests/updater_check.swift
 step bottles bash Tests/bottles_check.sh
 step upscaler bash Tests/upscaler/run.sh
 step api node Tests/api_check.js
+step emulators bash Tests/emulators_check.sh
 step dmgsum bash -c 'cd site/downloads && shasum -a 256 -c WYNIX.dmg.sha256'
 exit $status
