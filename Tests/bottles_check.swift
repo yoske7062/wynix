@@ -79,6 +79,8 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(store.contains(".wynix/\\(name)/wynix_upscale.dylib") && !store.contains("space in its folder path"), "bottles with a space in their path must get the helper dylib outside the bottle")
         precondition(store.contains("guard bottleExists(bottle) else { completion?(); return }") && store.contains("fileExists(atPath: bottle.url.path) else { return false }"), "optimize/dxmt.conf must not recreate a deleted bottle")
         precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
+        precondition(store.contains("changeEpicRockstarAccount") && store.contains("WSS-wineserverkill") && store.contains("epicgameslauncher.exe"), "Epic account switch must close the bottle and reopen Epic")
+        precondition(store.contains("https://www.epicgames.com/account/personal") && store.contains("https://support.rockstargames.com/"), "account actions must use official Epic and Rockstar paths")
         // D3DMetal 3.0 -> 4 -> 3.0 swap on a fake renderer dir.
         do {
             let fm = FileManager.default
@@ -200,6 +202,9 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         guard FileManager.default.fileExists(atPath: path) else { print("SKIP: no bottle at \(path)"); return }
         let root = URL(fileURLWithPath: path)
         let bottle = Bottle(url: root)
+        let epicBottle = Bottle(url: root.deletingLastPathComponent().appendingPathComponent("Epic Games.app"))
+        let steamBottle = Bottle(url: root.deletingLastPathComponent().appendingPathComponent("Steam.app"))
+        precondition(epicBottle.isEpic && !steamBottle.isEpic, "Epic account actions must only appear in the Epic bottle")
         assert(bottle.windowsPath(bottle.driveC.appendingPathComponent("Program Files/x.exe")) == "C:\\Program Files\\x.exe")
         assert(bottle.unixURL(windowsPath: "C:\\a\\b.exe")?.path == bottle.driveC.appendingPathComponent("a/b.exe").path)
         let programs = BottleStore.findPrograms(in: bottle)

@@ -21,6 +21,7 @@ struct Bottle: Identifiable, Hashable {
     var steamDir: URL { driveC.appendingPathComponent("Program Files (x86)/Steam") }
     /// Managed by setup.sh: name, location and D3DMetal are fixed.
     var isSteam: Bool { name == "Steam" }
+    var isEpic: Bool { name == "Epic Games" }
 
     func windowsPath(_ file: URL) -> String {
         // resolvingSymlinksInPath leaves missing files unresolved, so try both spellings of drive_c.
@@ -520,6 +521,11 @@ enum D3DMetalSwap {
     }
 }
 
+enum AccountRecoveryLinks {
+    static let epicAccount = URL(string: "https://www.epicgames.com/account/personal")!
+    static let rockstarSupport = URL(string: "https://support.rockstargames.com/")!
+}
+
 @MainActor
 final class BottleStore: ObservableObject {
     static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Sikarugir")
@@ -665,6 +671,31 @@ final class BottleStore: ObservableObject {
             }
         }
         launcher(bottle, ["WSS-installer", file.path])
+    }
+
+    /// Lets users leave a stuck store/verification flow without touching credentials or account data.
+    /// WYNIX cannot control Epic or Rockstar's verification dialog, so this returns to the
+    /// WYNIX-owned bottle controls, closes running programs, and opens the official account paths.
+    func changeEpicRockstarAccount(in bottle: Bottle) {
+        guard bottle.isEpic else { return }
+        launcher(bottle, ["WSS-wineserverkill"]) { [weak self] _, _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                NSWorkspace.shared.open(AccountRecoveryLinks.epicAccount)
+                let epicLauncher = self.programs[bottle.id]?.first {
+                    $0.path.lowercased().contains("epicgameslauncher.exe")
+                }
+                if let epicLauncher {
+                    self.open(URL(fileURLWithPath: epicLauncher.path), in: bottle)
+                } else {
+                    self.alertMessage = "Epic Games Launcher was not found in this bottle. Open Epic Games, sign out, then sign in with the account you want to use."
+                }
+            }
+        }
+    }
+
+    func openRockstarRecovery() {
+        NSWorkspace.shared.open(AccountRecoveryLinks.rockstarSupport)
     }
 
     // MARK: Environment variables (exported through the wrapper's "CLI Custom Commands")
@@ -2161,6 +2192,7 @@ struct BottleSidePanel: View {
     @State private var showDLLs = false
     @State private var showRename = false
     @State private var confirmDelete = false
+    @State private var confirmEpicAccountSwitch = false
     @State private var macDriver: [String: String] = [:]
     @State private var size = "Calculating…"
     @AppStorage("showAdvancedOptions") private var advanced = false
@@ -2209,6 +2241,12 @@ struct BottleSidePanel: View {
                     PanelButton("Simulate Reboot", icon: "arrow.clockwise") { store.launcher(bottle, ["WSS-wineboot"]) }
                     PanelButton("Force Quit Bottle", icon: "xmark.octagon") { store.launcher(bottle, ["WSS-wineserverkill"]) }
                     PanelButton("Refresh Applications", icon: "arrow.triangle.2.circlepath") { store.scanPrograms(bottle) }
+                    if bottle.isEpic {
+                        PanelButton("Change Epic / Rockstar Account", icon: "person.crop.circle.badge.questionmark") {
+                            confirmEpicAccountSwitch = true
+                        }
+                        PanelButton("Rockstar Account Recovery", icon: "key") { store.openRockstarRecovery() }
+                    }
                     if bottle.isSteam {
                         PanelButton("Repair Steam Login Screen", icon: "wrench.and.screwdriver") { store.repairSteamLogin(bottle) }
                     }
@@ -2383,6 +2421,12 @@ struct BottleSidePanel: View {
         } message: {
             Text("Everything running in \(bottle.name) will close. Installed programs stay. The first start on a new engine takes a little longer while Windows updates itself.")
         }
+        .alert("Change Epic / Rockstar Account?", isPresented: $confirmEpicAccountSwitch) {
+            Button("Close & Open Epic") { store.changeEpicRockstarAccount(in: bottle) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("WYNIX will close running apps in this bottle, open Epic account settings, and try to reopen Epic Games Launcher. Sign out and back in in Epic; WYNIX does not read, change, or store credentials. Rockstar's verification screen is controlled by Rockstar.")
+        }
         .alert("Delete \(bottle.name)?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Move to Trash", role: .destructive) { store.trash(bottle, completion: onDeleted) }
@@ -2412,6 +2456,18 @@ struct BottleSidePanel: View {
             BigActionButton(title: "Install a Program", detail: "Pick a Windows installer (.exe or .msi)",
                             icon: "arrow.down.app.fill", tint: .blue) {
                 if let f = store.pickFile(in: nil) { store.install(f, in: bottle) }
+            }
+            if bottle.isEpic {
+                BigActionButton(title: "Change Epic / Rockstar Account",
+                                detail: "Closes this bottle and opens official account/sign-in paths",
+                                icon: "person.crop.circle.badge.questionmark", tint: .orange) {
+                    confirmEpicAccountSwitch = true
+                }
+                BigActionButton(title: "Rockstar Account Recovery",
+                                detail: "Open Rockstar's account recovery and sign-in help",
+                                icon: "key.fill", tint: .blue) {
+                    store.openRockstarRecovery()
+                }
             }
             BigActionButton(title: "Support WYNIX ☕", detail: "WYNIX is free. A coffee on Ko-fi helps keep it going (nothing is locked)",
                             icon: "heart.fill", tint: .pink) {
