@@ -612,17 +612,27 @@ struct SpinningW: View {
             .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
     }
 
+    private func animate(_ on: Bool) {
+        guard on, !reduceMotion else {
+            var still = Transaction(); still.disablesAnimations = true
+            withTransaction(still) { angle = 0; sweep = -1 }
+            return
+        }
+        withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) { angle = 360 }
+        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) { sweep = 1.1 }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             w
             Text("YNIX").font(font).foregroundStyle(.primary)
         }
         .tracking(-0.6)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) { angle = 360 }
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) { sweep = 1.1 }
-        }
+        // Animate only while WYNIX is the active app: a visible window behind a game would
+        // otherwise redraw this every frame for the whole session.
+        .onAppear { animate(NSApp.isActive) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in animate(true) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in animate(false) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("WYNIX")
     }
