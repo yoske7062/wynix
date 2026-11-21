@@ -84,7 +84,7 @@ struct HomeView: View {
                             }
                         }
                     }
-                    Text("Emulators are native Mac apps, not bottles. WYNIX never downloads keys, firmware, BIOS or games: dump them from a console you own. Right-click a card to update or uninstall.")
+                    Text("Emulators run as Mac apps, not in bottles. WYNIX never downloads keys, firmware, BIOS or games: dump them from a console you own. Right-click a card to update or uninstall.")
                         .font(.app(.caption)).foregroundStyle(.secondary)
                 }
 

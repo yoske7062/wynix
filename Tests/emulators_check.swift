@@ -23,6 +23,9 @@ import Foundation
         expect(EmulatorConfig.getINI(ini, section: "other", key: "y") == "2", "get ini")
         expect(EmulatorConfig.getINI(ini, section: "other", key: "x") == nil, "get ini is per section")
 
+        expect(EmulatorConfig.isWynixCore("/v/WYNIX 0.20.0/shadps4", versionsDir: "/v"), "own core detected")
+        expect(!EmulatorConfig.isWynixCore("/v/Pre-release-x/shadps4", versionsDir: "/v"), "user core left alone")
+
         // versions.json entry added once.
         let once = EmulatorConfig.addVersion([], name: "n", path: "/p", date: "d")
         expect(EmulatorConfig.addVersion(once, name: "n", path: "/p", date: "d").count == 1, "no duplicate version")
@@ -42,6 +45,20 @@ import Foundation
             expect(FileManager.default.fileExists(atPath: e.appURL.appendingPathComponent("Contents/Info.plist").path), "\(e.id) app present")
         }
         let ps4 = Emulator.all.first { $0.id == "ps4" }!
+        // Update path: an older WYNIX core is selected and the user turned the cache off.
+        let fm = FileManager.default
+        let versions = ps4.coreDir.deletingLastPathComponent()
+        let old = versions.appendingPathComponent("WYNIX 0.20.0")
+        try! fm.createDirectory(at: old, withIntermediateDirectories: true)
+        try! Data().write(to: old.appendingPathComponent("shadps4"))
+        let iniURL = Emulator.shadLauncherDir.appendingPathComponent("qt_ui.ini")
+        try! EmulatorConfig.setINI("", section: "version_manager", key: "versionSelected", value: old.appendingPathComponent("shadps4").path).write(to: iniURL, atomically: true, encoding: .utf8)
+        let cfgURL = Emulator.shadUserDir.appendingPathComponent("config.json")
+        try! #"{"Vulkan":{"pipeline_cache_enabled":false}}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
+        do { try EmulatorStore.installBlocking(ps4) } catch { expect(false, "ps4 reinstall: \(error)") }
+        expect(!fm.fileExists(atPath: old.path), "old WYNIX core removed on update")
+        let cfg = try! String(contentsOf: cfgURL, encoding: .utf8)
+        expect(cfg.contains("false"), "user's own setting kept after first install")
         let ini2 = try! String(contentsOf: Emulator.shadLauncherDir.appendingPathComponent("qt_ui.ini"), encoding: .utf8)
         expect(EmulatorConfig.getINI(ini2, section: "version_manager", key: "versionSelected") == ps4.coreDir.appendingPathComponent("shadps4").path, "core selected")
         await MainActor.run {

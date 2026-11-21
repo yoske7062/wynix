@@ -110,6 +110,11 @@ enum EmulatorConfig {
         return nil
     }
 
+    /// True for a core WYNIX installed (versions/WYNIX <version>/...), which WYNIX may replace.
+    static func isWynixCore(_ path: String, versionsDir: String) -> Bool {
+        path.hasPrefix(versionsDir + "/WYNIX ")
+    }
+
     /// Adds the core to the launcher's versions.json once (same fields its own "Add version" writes).
     static func addVersion(_ list: [[String: Any]], name: String, path: String, date: String) -> [[String: Any]] {
         if list.contains(where: { $0["path"] as? String == path }) { return list }
@@ -162,7 +167,7 @@ final class EmulatorStore: ObservableObject {
     }
 
     func open(_ e: Emulator) {
-        if e.id == "ps4" { try? Self.configureShadPS4(e) }  // keep our core selected if the user removed it
+        if e.id == "ps4" { try? Self.configureShadPS4(e, settings: false) }  // repair core selection only
         NSWorkspace.shared.openApplication(at: e.appURL, configuration: NSWorkspace.OpenConfiguration())
     }
 
@@ -222,12 +227,22 @@ final class EmulatorStore: ObservableObject {
         try? fm.removeItem(at: e.appURL)
         try fm.moveItem(at: newApp, to: e.appURL)
         try e.version.write(to: e.versionFile, atomically: true, encoding: .utf8)
-        if e.id == "ps4" { try configureShadPS4(e) }
+        if e.id == "ps4" {
+            // An update leaves the previous WYNIX core behind: drop it so the launcher moves on.
+            let versions = e.coreDir.deletingLastPathComponent()
+            for old in (try? fm.contentsOfDirectory(at: versions, includingPropertiesForKeys: nil)) ?? []
+            where old.lastPathComponent.hasPrefix("WYNIX ") && old.lastPathComponent != e.coreDir.lastPathComponent {
+                try? fm.removeItem(at: old)
+            }
+            let marker = Emulator.stateRoot.appendingPathComponent("ps4.configured")
+            try configureShadPS4(e, settings: !fm.fileExists(atPath: marker.path))
+            try? Data().write(to: marker)
+        }
     }
 
-    /// Registers WYNIX's core with the launcher (only if no working core is selected) and turns
-    /// on shadPS4's pipeline cache, keeping every other setting the user has.
-    nonisolated static func configureShadPS4(_ e: Emulator) throws {
+    /// Registers WYNIX's core with the launcher (unless the user picked another working core) and,
+    /// on the first install only, turns on shadPS4's pipeline cache keeping every other setting.
+    nonisolated static func configureShadPS4(_ e: Emulator, settings: Bool) throws {
         let fm = FileManager.default
         let exe = e.coreDir.appendingPathComponent("shadps4").path
         guard fm.fileExists(atPath: exe) else { return }
@@ -236,18 +251,23 @@ final class EmulatorStore: ObservableObject {
 
         let versionsURL = Emulator.shadLauncherDir.appendingPathComponent("versions.json")
         let list = (try? JSONSerialization.jsonObject(with: Data(contentsOf: versionsURL))) as? [[String: Any]] ?? []
-        let updated = EmulatorConfig.addVersion(list, name: "WYNIX \(e.version)", path: exe, date: "2026-10-30")
+        let versionsDir = e.coreDir.deletingLastPathComponent().path
+        let updated = EmulatorConfig.addVersion(list.filter { entry in
+            let path = entry["path"] as? String ?? ""
+            return !EmulatorConfig.isWynixCore(path, versionsDir: versionsDir) || path == exe
+        }, name: "WYNIX \(e.version)", path: exe, date: "2026-10-30")
         try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .withoutEscapingSlashes]).write(to: versionsURL)
 
         let iniURL = Emulator.shadLauncherDir.appendingPathComponent("qt_ui.ini")
         var ini = (try? String(contentsOf: iniURL, encoding: .utf8)) ?? ""
         let selected = EmulatorConfig.getINI(ini, section: "version_manager", key: "versionSelected") ?? ""
-        if selected.isEmpty || !fm.fileExists(atPath: selected) {
+        if selected != exe, selected.isEmpty || !fm.fileExists(atPath: selected) || EmulatorConfig.isWynixCore(selected, versionsDir: versionsDir) {
             ini = EmulatorConfig.setINI(ini, section: "version_manager", key: "versionPath", value: e.coreDir.deletingLastPathComponent().path)
             ini = EmulatorConfig.setINI(ini, section: "version_manager", key: "versionSelected", value: exe)
             try ini.write(to: iniURL, atomically: true, encoding: .utf8)
         }
 
+        guard settings else { return }
         let configURL = Emulator.shadUserDir.appendingPathComponent("config.json")
         let config = (try? JSONSerialization.jsonObject(with: Data(contentsOf: configURL))) as? [String: Any] ?? [:]
         let merged = EmulatorConfig.merge(config, EmulatorConfig.shadPS4Patch)
