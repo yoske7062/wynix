@@ -693,8 +693,8 @@ struct GameCoverCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(hovering ? 0.35 : 0.1)))
         .shadow(color: .black.opacity(hovering ? 0.45 : 0.25), radius: hovering ? 18 : 10, y: hovering ? 10 : 5)
-        .offset(y: hovering ? -4 : 0)
         .overlay(alignment: .topTrailing) { DLSSBadge(level: dlss).padding(8) }
+        .offset(y: hovering ? -4 : 0)
         .help(name)
         .onHover { h in withAnimation(.easeOut(duration: 0.4)) { hovering = h } }
     }

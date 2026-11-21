@@ -10,6 +10,8 @@ struct HomeView: View {
     var openGames: () -> Void = {}
 
     @State private var search = ""
+    /// Same list the Games tab hides (comma-separated Steam App IDs).
+    @AppStorage("hiddenGames") private var hiddenRaw = ""
 
     private struct CatalogItem: Identifiable {
         let name: String
@@ -97,7 +99,6 @@ struct HomeView: View {
         }
         .onAppear {
             store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } }
-            if model.state == .ready && model.games.isEmpty { model.loadGames() }
         }
     }
 
@@ -113,7 +114,8 @@ struct HomeView: View {
     /// Big banner with the first game's Steam art and a strip of covers. Tapping goes to the
     /// library, where Play (with its DirectX profile check) lives.
     private var libraryHero: some View {
-        let games = model.games
+        let hidden = Set(hiddenRaw.split(separator: ",").map(String.init))
+        let games = model.games.filter { !hidden.contains($0.id) }
         return ZStack(alignment: .bottomLeading) {
             Group {
                 if let first = games.first {
@@ -251,9 +253,9 @@ struct CatalogCard: View {
                 }
                 .foregroundStyle(.white)
                 .frame(width: 48, height: 48)
-                .background(logo == nil ? AnyShapeStyle(Color.steamyAccent.gradient) : AnyShapeStyle(tint.gradient),
+                .background(logo == nil ? AnyShapeStyle(Color.wynixFill.gradient) : AnyShapeStyle(tint.gradient),
                             in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .shadow(color: (logo == nil ? Color.steamyAccent : tint).opacity(0.35), radius: 8, y: 4)
+                .shadow(color: (logo == nil ? Color.wynixFill : tint).opacity(0.35), radius: 8, y: 4)
                 Spacer(minLength: 8)
                 // Plain bordered capsule for Install: glass on a glass card washes out in Light Mode.
                 if actionTitle == "Install" {
