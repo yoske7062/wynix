@@ -487,8 +487,11 @@ struct ContentView: View {
                     }
                     UpdateButton()
                     Button { showOptimize = true } label: {
-                        Label("Optimize", systemImage: "bolt.fill").font(.app(.title3)).foregroundStyle(.steamyAccent)
+                        Label("Optimize", systemImage: "bolt.fill").font(.app(.title3).weight(.semibold))
+                            .frame(maxWidth: .infinity).padding(.vertical, 3)
                     }
+                    .wynixGlassButton(prominent: true)
+                    .controlSize(.large)
                     Button { showInstall = true } label: {
                         Label("Install from File", systemImage: "plus.app.fill").font(.app(.title3))
                     }
@@ -506,6 +509,7 @@ struct ContentView: View {
             .navigationTitle("WYNIX")
             .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
         } detail: {
+            Group {
             switch selection ?? .games {
             case .games:
                 GameLibraryView(model: model, store: store) {
@@ -514,7 +518,8 @@ struct ContentView: View {
             case .management:
                 HomeView(model: model, store: store,
                          openBottle: { selection = .bottle($0.id) },
-                         confirmStop: { showStopConfirmation = true })
+                         confirmStop: { showStopConfirmation = true },
+                         openGames: { selection = .games })
             case .bottle(let id):
                 if let bottle = store.bottles.first(where: { $0.id == id }) {
                     BottleView(store: store, bottle: bottle) { selection = .games }
@@ -523,6 +528,8 @@ struct ContentView: View {
                     ContentUnavailableView("Bottle Not Found", systemImage: "shippingbox")
                 }
             }
+            }
+            .background { WynixBackdrop() }
         }
         .frame(minWidth: 1080, minHeight: 680)
         .onAppear { Updater.shared.start() }
@@ -545,7 +552,7 @@ struct ContentView: View {
         }
         .onChange(of: model.state) { _, state in
             if state == .ready { store.reload() }
-            if state == .ready, selection == .games {
+            if state == .ready, selection == .games || selection == .management {  // Home shows the library too
                 model.loadGames()
             } else if state == .notInstalled || state == .partial || state == .failed, selectedBottleID == nil, tutorialDone {  // never yank the tour
                 selection = .management
@@ -660,7 +667,7 @@ struct GameCoverCard: View {
             .clipped()
             .scaleEffect(hovering ? 1.04 : 1)
 
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
                 .allowsHitTesting(false)
 
             Button(action: play) {
@@ -671,10 +678,11 @@ struct GameCoverCard: View {
                         Text("Play")
                     }
                 }
-                .font(.app(.title3).weight(.medium))
+                .font(.app(.title3).weight(.semibold))
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity).padding(.vertical, 9)
-                .background(.white, in: RoundedRectangle(cornerRadius: 10))
+                .background(.white, in: Capsule())
+                .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
             }
             .buttonStyle(.plain)
             .disabled(disabled)
@@ -682,7 +690,10 @@ struct GameCoverCard: View {
             .padding(12)
         }
         .aspectRatio(2/3, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(hovering ? 0.35 : 0.1)))
+        .shadow(color: .black.opacity(hovering ? 0.45 : 0.25), radius: hovering ? 18 : 10, y: hovering ? 10 : 5)
+        .offset(y: hovering ? -4 : 0)
         .overlay(alignment: .topTrailing) { DLSSBadge(level: dlss).padding(8) }
         .help(name)
         .onHover { h in withAnimation(.easeOut(duration: 0.4)) { hovering = h } }
@@ -818,12 +829,14 @@ struct GameLibraryView: View {
                             systemImage: model.isSteamRunning ? "macwindow" : "play.fill"
                         )
                     }
+                    .wynixGlassButton(prominent: !model.isSteamRunning)
                     .disabled(model.operationInProgress)
 
                     if model.isSteamRunning {
                         Button { confirmQuitSteam = true } label: {
                             Label("Quit Steam", systemImage: "power")
                         }
+                        .wynixGlassButton()
                         .help("Closes Windows Steam completely, including the icon in the menu bar")
                     }
 
@@ -832,6 +845,7 @@ struct GameLibraryView: View {
                     } label: {
                         Label(L10n.string("common.refresh"), systemImage: "arrow.clockwise")
                     }
+                    .wynixGlassButton()
                     .disabled(model.operationInProgress)
 
                     let hiddenCount = model.games.filter { hidden.contains($0.id) }.count
@@ -840,6 +854,7 @@ struct GameLibraryView: View {
                             Label(showHidden ? "Hide Hidden" : "Hidden (\(hiddenCount))",
                                   systemImage: showHidden ? "eye.slash" : "eye")
                         }
+                        .wynixGlassButton()
                         .help("Show or hide the games you hid")
                     }
                 }
@@ -859,7 +874,7 @@ struct GameLibraryView: View {
                     Text(L10n.string("games.setupRequired.detail"))
                 } actions: {
                     Button(L10n.string("games.openManagement"), action: openManagement)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).tint(.wynixFill)
                 }
                 Spacer()
             } else if model.operationInProgress && model.games.isEmpty {
@@ -877,7 +892,7 @@ struct GameLibraryView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 22)], spacing: 24) {
                         ForEach(visibleGames) { game in
                             let isHidden = hidden.contains(game.id)
                             GameCoverCard(game: game,
@@ -893,7 +908,7 @@ struct GameLibraryView: View {
                                 }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 10)
                 }
             }
 
@@ -904,7 +919,7 @@ struct GameLibraryView: View {
                     .padding(.top, 12)
             }
         }
-        .padding(28)
+        .padding(32)
         .onChange(of: model.isSteamRunning) { _, running in  // game session over: show the benchmark
             guard !running, let g = benchGame, let b = steamBottle else { return }
             benchGame = nil
@@ -1146,6 +1161,6 @@ struct MacSteamSetupApp: App {
     var body: some Scene {
         WindowGroup { RootView() }
             .windowResizability(.contentMinSize)
-        Settings { SettingsView() }
+        Settings { SettingsView().tint(.steamyAccent) }
     }
 }

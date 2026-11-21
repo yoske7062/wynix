@@ -64,7 +64,7 @@ struct TutorialOverlay: View {
                     Button(index == steps.count - 1 ? "Start playing" : "Next") {
                         index == steps.count - 1 ? finish() : go(index + 1)
                     }
-                    .buttonStyle(.borderedProminent).tint(.steamyAccent)
+                    .buttonStyle(.borderedProminent).tint(.wynixFill)
                     .keyboardShortcut(.defaultAction)
                 }
             }

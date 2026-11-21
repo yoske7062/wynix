@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Steamy's start screen: everything you can install, your bottles, and Steam tools.
+/// WYNIX's start screen: your games first, then the stores and your bottles.
 struct HomeView: View {
     @ObservedObject var model: InstallerModel
     @ObservedObject var store: BottleStore
     let openBottle: (Bottle) -> Void
     let confirmStop: () -> Void
+    var openGames: () -> Void = {}
 
     @State private var search = ""
 
@@ -22,30 +23,43 @@ struct HomeView: View {
         search.isEmpty || text.localizedCaseInsensitiveContains(search)
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 290, maximum: 380), spacing: 14)]
+    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)]
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: "Good morning"
+        case 12..<19: "Good afternoon"
+        default: "Good evening"
+        }
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Home").font(.app(.largeTitle).bold())
-                    Text("Install and run Windows games and apps on your Mac.")
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 30) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(greeting).font(.app(.largeTitle).bold())
+                        Text("Your Windows games, at home on your Mac.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 20)
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                        TextField("Search stores and bottles", text: $search)
+                            .textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .frame(maxWidth: 280)
+                    .wynixGlass(in: Capsule())
                 }
-
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                    TextField("Search stores, launchers and your bottles", text: $search)
-                        .textFieldStyle(.plain)
-                }
-                .padding(10)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
 
                 if model.state != .ready && model.state != .checking {
                     steamSetupCard
+                } else if model.state == .ready {
+                    libraryHero
                 }
 
-                section("Game Stores") {
+                section("Stores") {
                     if matches("Steam Valve") { steamCard }
                     ForEach(BottleStore.launchers.filter { matches($0.name + " " + $0.detail) }) { launcher in
                         let bottle = store.bottles.first { $0.name == launcher.name }
@@ -77,18 +91,100 @@ struct HomeView: View {
                     Text("Unofficial. Not affiliated with Valve, Apple, CodeWeavers or Sikarugir.")
                 }
                 .font(.app(.caption))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
             }
-            .padding(28)
+            .padding(32)
         }
-        .onAppear { store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } } }
+        .onAppear {
+            store.bottles.forEach { if store.programs[$0.id] == nil { store.scanPrograms($0) } }
+            if model.state == .ready && model.games.isEmpty { model.loadGames() }
+        }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.app(.title3).bold())
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) { content() }
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.app(.title2).bold())
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) { content() }
         }
+    }
+
+    // MARK: Library hero
+
+    /// Big banner with the first game's Steam art and a strip of covers. Tapping goes to the
+    /// library, where Play (with its DirectX profile check) lives.
+    private var libraryHero: some View {
+        let games = model.games
+        return ZStack(alignment: .bottomLeading) {
+            Group {
+                if let first = games.first {
+                    AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(first.id)/library_hero.jpg")) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() } else { WynixBackdrop(intensity: 2) }
+                    }
+                } else {
+                    WynixBackdrop(intensity: 2)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 250, maxHeight: 250)
+            .clipped()
+            .accessibilityHidden(true)
+
+            LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.15)], startPoint: .bottomLeading, endPoint: .topTrailing)
+                .allowsHitTesting(false)
+
+            HStack(alignment: .bottom, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(model.isSteamRunning ? "Steam is running" : "Steam is ready",
+                          systemImage: model.isSteamRunning ? "dot.radiowaves.left.and.right" : "checkmark.circle.fill")
+                        .font(.app(.caption).weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .wynixGlass(in: Capsule())
+                    Text(games.isEmpty ? "Your library" : "Jump back in")
+                        .font(.app(.largeTitle).bold())
+                    Text(games.isEmpty ? "Install a game in Steam and it shows up here."
+                                       : "\(games.count) \(games.count == 1 ? "game" : "games") ready to play")
+                        .foregroundStyle(.white.opacity(0.85))
+                    HStack(spacing: 10) {
+                        if !games.isEmpty {
+                            Button(action: openGames) {
+                                Label("Open Library", systemImage: "square.grid.2x2.fill").padding(.horizontal, 6)
+                            }
+                            .wynixGlassButton(prominent: true)
+                        }
+                        Button(action: model.openSteam) {
+                            Label(model.isSteamRunning ? "Show Steam" : "Open Steam", systemImage: "play.fill").padding(.horizontal, 6)
+                        }
+                        .wynixGlassButton(prominent: games.isEmpty)
+                        .disabled(model.isBusy)
+                    }
+                    .controlSize(.large)
+                }
+                .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                if !games.isEmpty {
+                    HStack(spacing: 12) {
+                        ForEach(games.prefix(4)) { game in
+                            Button(action: openGames) {
+                                AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(game.id)/library_600x900.jpg")) { phase in
+                                    if let image = phase.image { image.resizable().scaledToFill() } else { Color.white.opacity(0.12) }
+                                }
+                                .frame(width: 92, height: 138)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.18)))
+                                .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
+                            }
+                            .buttonStyle(LiftButtonStyle())
+                            .help(game.name)
+                            .accessibilityLabel("\(game.name), open library")
+                        }
+                    }
+                }
+            }
+            .padding(24)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.white.opacity(0.1)))
+        .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
+        .environment(\.colorScheme, .dark)  // white text over art in both appearances
     }
 
     // MARK: Steam
@@ -108,7 +204,7 @@ struct HomeView: View {
     }
 
     private var steamSetupCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             StatusCard(model: model)
             if model.state == .installing {
                 ProgressView(value: model.progress, total: 100)
@@ -120,16 +216,18 @@ struct HomeView: View {
                 Button(action: model.primaryAction) {
                     Text(model.primaryTitle).frame(maxWidth: .infinity).padding(.vertical, 4)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                .wynixGlassButton(prominent: true)
                 .controlSize(.large)
                 .disabled(model.isBusy)
             }
         }
+        .padding(20)
+        .wynixGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
 }
 
+/// Store or bottle tile: big logo, name, short line and a capsule action.
 struct CatalogCard: View {
     let title: String
     let detail: String
@@ -139,30 +237,101 @@ struct CatalogCard: View {
     let actionTitle: String
     var busy = false
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                if let logo, let image = BrandLogo.image(logo) {
-                    Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(10)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                Group {
+                    if let logo, let image = BrandLogo.image(logo) {
+                        Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(11)
+                    } else {
+                        Image(systemName: icon).font(.system(size: 22, weight: .semibold)).accessibilityHidden(true)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(logo == nil ? AnyShapeStyle(Color.steamyAccent.gradient) : AnyShapeStyle(tint.gradient),
+                            in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .shadow(color: (logo == nil ? Color.steamyAccent : tint).opacity(0.35), radius: 8, y: 4)
+                Spacer(minLength: 8)
+                // Plain bordered capsule for Install: glass on a glass card washes out in Light Mode.
+                if actionTitle == "Install" {
+                    Button(actionTitle, action: action).buttonStyle(.bordered).buttonBorderShape(.capsule)
+                        .disabled(busy).accessibilityLabel("\(actionTitle) \(title)")
                 } else {
-                    Image(systemName: icon).font(.app(.title2)).accessibilityHidden(true)
+                    Button(actionTitle, action: action).wynixGlassButton(prominent: true)
+                        .disabled(busy).accessibilityLabel("\(actionTitle) \(title)")
                 }
             }
-            .foregroundStyle(logo == nil ? Color.steamyAccent : .white)
-            .frame(width: 46, height: 46)
-            .background(logo == nil ? AnyShapeStyle(Color.steamyAccent.opacity(0.16)) : AnyShapeStyle(tint.gradient),
-                        in: RoundedRectangle(cornerRadius: 11))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).fontWeight(.semibold).lineLimit(1).fixedSize(horizontal: false, vertical: true)
-                Text(detail).font(.app(.caption)).foregroundStyle(.secondary).lineLimit(2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.app(.title3).weight(.semibold)).lineLimit(1)
+                Text(detail).font(.app(.caption)).foregroundStyle(.secondary).lineLimit(2, reservesSpace: true)
             }
-            Spacer(minLength: 4)
-            Button(actionTitle, action: action)
-                .disabled(busy)
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+        .padding(16)
+        .wynixGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .scaleEffect(hovering ? 1.02 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hovering)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// Press/hover feedback for art tiles: a small spring lift.
+struct LiftButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        LiftBody(configuration: configuration)
+    }
+    private struct LiftBody: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hovering = false
+        var body: some View {
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.96 : hovering ? 1.05 : 1)
+                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: hovering)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// The soft WYNIX-pink glow behind content, so Liquid Glass has some colour to refract.
+struct WynixBackdrop: View {
+    var intensity = 1.0
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let a = (scheme == .dark ? 0.22 : 0.12) * intensity
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            RadialGradient(colors: [Color(hex: 0xE05A83).opacity(a), .clear], center: .topLeading, startRadius: 0, endRadius: 650)
+            RadialGradient(colors: [Color(hex: 0x7A4BD6).opacity(a * 0.6), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 700)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+extension View {
+    /// Liquid Glass on macOS 26+, a material on older systems (deployment target is macOS 14).
+    @ViewBuilder func wynixGlass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+        if #available(macOS 26, *) {
+            glassEffect(Glass.regular.tint(tint), in: shape)
+        } else {
+            background(.regularMaterial, in: shape)
+        }
+    }
+
+    /// Glass button on macOS 26+ (prominent ones are solid WYNIX-pink capsules), bordered on older systems.
+    @ViewBuilder func wynixGlassButton(prominent: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            if prominent {
+                buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(.wynixFill).foregroundStyle(.white)
+            } else {
+                buttonStyle(.glass)
+            }
+        } else {
+            if prominent { buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white) } else { buttonStyle(.bordered) }
+        }
     }
 }
 
@@ -181,16 +350,15 @@ enum BrandLogo {
 }
 
 extension Color {
-    /// Accent: neutral grey in Dark Mode, green in Light Mode (readable on white).
+    /// Accent: WYNIX pink from the app icon. Lighter in Dark Mode, deeper in Light Mode so it
+    /// stays readable as text. WCAG contrast: 5.5:1 on the dark window, 6.2:1 on white.
     static let steamyAccent = Color(nsColor: NSColor(name: "steamyAccent") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(white: 0.62, alpha: 1)
-            : NSColor(srgbRed: 0, green: 0.62, blue: 0.33, alpha: 1)
+            ? NSColor(srgbRed: 0xE8 / 255, green: 0x6A / 255, blue: 0x92 / 255, alpha: 1)
+            : NSColor(srgbRed: 0xB0 / 255, green: 0x2E / 255, blue: 0x5F / 255, alpha: 1)
     })
-    /// Text/icon color on a solid accent background.
-    static let onSteamyAccent = Color(nsColor: NSColor(name: "onSteamyAccent") { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .black
-    })
+    /// Fill for prominent buttons, from the icon's pink. White text on it: 5.1:1.
+    static let wynixFill = Color(hex: 0xC23A6B)
 
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
@@ -235,7 +403,7 @@ extension Font {
         let stored = UserDefaults.standard.double(forKey: "textScale")
         let scale = stored == 0 ? 1 : stored
         let base: CGFloat = switch style {
-        case .largeTitle: 26
+        case .largeTitle: 30
         case .title: 22
         case .title2: 17
         case .title3: 15

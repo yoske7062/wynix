@@ -1909,20 +1909,20 @@ struct BottleView: View {
                 HStack(alignment: .top) {
                     Text(bottle.name).font(.app(.largeTitle).bold())
                     Spacer()
-                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
-                        GridRow {
-                            Text("Bottle Type:").foregroundStyle(.secondary).gridColumnAlignment(.trailing)
-                            Text(windowsVersion)
-                        }
-                        GridRow {
-                            Text("Status:").foregroundStyle(.secondary)
-                            Text(store.scanning.contains(bottle.id) ? "Scanning…" : "Ready")
-                        }
+                    HStack(spacing: 8) {
+                        Label(windowsVersion, systemImage: "macwindow")
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .wynixGlass(in: Capsule())
+                            .accessibilityLabel("Bottle type: \(windowsVersion)")
+                        let scanning = store.scanning.contains(bottle.id)
+                        Label(scanning ? "Scanning…" : "Ready", systemImage: scanning ? "arrow.triangle.2.circlepath" : "checkmark.circle.fill")
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .wynixGlass(in: Capsule())
+                            .accessibilityLabel("Status: \(scanning ? "Scanning" : "Ready")")
                     }
-                    .font(.app(.caption))
+                    .font(.app(.caption).weight(.medium))
                 }
-                .padding(.bottom, 14)
-                Divider()
+                .padding(.bottom, 10)
 
                 if programs.isEmpty && !store.scanning.contains(bottle.id) {
                     ContentUnavailableView {
@@ -1931,13 +1931,13 @@ struct BottleView: View {
                         Text("Install software or add an existing .exe to this bottle.")
                     } actions: {
                         Button("Install Software…") { if let f = store.pickFile(in: nil) { store.install(f, in: bottle) } }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.borderedProminent).tint(.wynixFill)
                         Button("Add Application…") { if let f = store.pickFile(in: bottle) { store.addProgram(f, to: bottle) } }
                     }
                     .frame(maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 22) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130, maximum: 160), spacing: 16)], spacing: 16) {
                             ForEach(programs) { program in
                                 ProgramTile(program: program, name: store.displayName(program, in: bottle), opening: openingID == program.id)
                                     .onTapGesture(count: 2) { launch(program) }
@@ -1968,13 +1968,16 @@ struct BottleView: View {
                     }
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 20)
+            .padding(.horizontal, 32)
+            .padding(.top, 24)
             .frame(maxWidth: .infinity)
 
-            Divider()
+            // Floating inspector, like macOS 27's own side panels.
             BottleSidePanel(store: store, bottle: bottle, onDeleted: onDeleted)
-                .frame(width: 290)
+                .frame(width: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .wynixGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .padding(12)
         }
         .sheet(item: $renaming) { program in
             TextPromptSheet(title: "Rename", prompt: "Name shown on the tile (max 60 characters)", initial: store.displayName(program, in: bottle), action: "Save") { text in
@@ -2027,6 +2030,7 @@ struct ProgramTile: View {
     var name = ""
     var opening = false
     @State private var pulse = false
+    @State private var hovering = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -2063,6 +2067,11 @@ struct ProgramTile: View {
                 .lineLimit(2)
         }
         .frame(width: 130)
+        .padding(.vertical, 12)
+        .background {
+            if hovering { Color.clear.wynixGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+        }
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
         .contentShape(Rectangle())
         .help(program.path)
         .accessibilityElement(children: .ignore)
@@ -2149,7 +2158,7 @@ struct BottleSidePanel: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                    .tint(.wynixFill).foregroundStyle(.white)
                     SettingRow("Engine") {
                         Picker("", selection: Binding(
                             get: { store.engine(of: bottle) },
@@ -2527,26 +2536,29 @@ struct BigActionButton: View {
     let icon: String
     let tint: Color
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.steamyAccent)
-                    .frame(width: 40, height: 40)
-                    .background(Color.steamyAccent.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.app(.body).weight(.semibold))
                     Text(detail).font(.app(.caption)).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(8)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .padding(10)
+            .background(.primary.opacity(hovering ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
     }
 }
 
@@ -2809,7 +2821,7 @@ struct OptimizeSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                .tint(.wynixFill).foregroundStyle(.white)
                 .disabled(store.bottles.isEmpty)
             }
         }
@@ -2889,7 +2901,7 @@ struct InstallSheet: View {
                 Text("Drop a Windows installer here").font(.app(.title3).bold())
                 Text(".exe or .msi — or choose a file").font(.app(.callout)).foregroundStyle(.secondary)
                 Button("Choose File…") { choose() }
-                    .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                    .buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white)
                     .accessibilityLabel("Choose installer file")
             }
         }
@@ -2940,7 +2952,7 @@ struct InstallSheet: View {
                     if let file, let bottle = selectedBottle { store.install(file, in: bottle) }
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent).tint(.steamyAccent).foregroundStyle(Color.onSteamyAccent)
+                .buttonStyle(.borderedProminent).tint(.wynixFill).foregroundStyle(.white)
                 .keyboardShortcut(.defaultAction)
                 .disabled(file == nil || bottleID == nil)
                 .accessibilityLabel("Install software into the selected bottle")
