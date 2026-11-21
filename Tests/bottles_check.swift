@@ -58,6 +58,7 @@ enum L10n { static func string(_ k: String) -> String { k }; static func format(
         precondition(String(data: drainable.drain(), encoding: .utf8) == "stale" && drainable.data.isEmpty,
                      "LockedData drain must be atomic")
         let store = (try? String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)) ?? ""
+        precondition(store.contains(".wynix/\\(name)/wynix_upscale.dylib") && !store.contains("space in its folder path"), "bottles with a space in their path must get the helper dylib outside the bottle")
         precondition(store.contains("guard bottleExists(bottle) else { completion?(); return }") && store.contains("fileExists(atPath: bottle.url.path) else { return false }"), "optimize/dxmt.conf must not recreate a deleted bottle")
         precondition(store.contains("readabilityHandler") && store.contains("is no longer in the Sikarugir folder"), "spawn drain / missing-bottle guard missing")
         // D3DMetal 3.0 -> 4 -> 3.0 swap on a fake renderer dir.

@@ -1392,7 +1392,7 @@ final class BottleStore: ObservableObject {
         let fm = FileManager.default
         if on {
             guard ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path else {
-                alertMessage = "The performance HUD needs the WYNIX helper library, which can't be installed in this bottle (a space in its folder path, or its files could not be copied)."
+                alertMessage = "The performance HUD needs the WYNIX helper library, which can't be installed in this bottle (its files could not be copied)."
                 return
             }
             try? fm.createDirectory(at: hudFlag(bottle).deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1586,10 +1586,18 @@ final class BottleStore: ObservableObject {
     /// The dylib lives inside the bottle, so the bottle keeps working when opened from Finder
     /// or the Dock and survives WYNIX being removed. dyld kills Wine if the file is missing, and
     /// the bottle's export line is unquoted and DYLD_INSERT_LIBRARIES is colon-separated, so
-    /// bottles whose path has a space or colon can't use it.
+    /// bottles whose path has a space or colon (e.g. "Epic Games.app") keep it in ~/.wynix/<bottle> instead.
     func upscalerURL(_ bottle: Bottle) -> URL? {
-        let url = bottle.contents.appendingPathComponent("Frameworks/wynix_upscale.dylib")
-        return url.path.contains(" ") || url.path.contains(":") ? nil : url
+        func usable(_ url: URL) -> Bool { !url.path.contains(" ") && !url.path.contains(":") }
+        let inside = bottle.contents.appendingPathComponent("Frameworks/wynix_upscale.dylib")
+        if usable(inside) { return inside }
+        let name = bottle.url.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: ":", with: "_")
+        let outside = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".wynix/\(name)/wynix_upscale.dylib")
+        guard usable(outside) else { return nil }
+        try? FileManager.default.createDirectory(at: outside.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return outside
     }
 
     /// Copies the bundled dylib into the bottle if missing or outdated.
@@ -1618,7 +1626,7 @@ final class BottleStore: ObservableObject {
 
     func setBenchmarking(_ bottle: Bottle, _ on: Bool) {
         guard !on || ensureUpscaler(bottle), let path = upscalerURL(bottle)?.path else {
-            alertMessage = "Recording performance needs the WYNIX helper library, which can't be installed in this bottle (a space in its folder path, or its files could not be copied)."
+            alertMessage = "Recording performance needs the WYNIX helper library, which can't be installed in this bottle (its files could not be copied)."
             return
         }
         setEnvironment(bottle, "WYNIX_BENCH_FILE", on ? benchDir(bottle).path + "/" : nil)
