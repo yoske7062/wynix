@@ -489,7 +489,7 @@ struct ContentView: View {
                             BottleSidebarRow(store: store, bottle: bottle) { selection = .management }
                                 .sidebarRow(selected: selection == .bottle(bottle.id)) { selection = .bottle(bottle.id) }
                         }
-                        SidebarItem(title: "New Windows Space…", selected: false, secondary: true) { showNewBottle = true }
+                        SidebarItem(title: "New Bottle…", selected: false, secondary: true) { showNewBottle = true }
                     }
                 }
                 .scrollIndicators(.never)

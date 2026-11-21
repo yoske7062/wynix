@@ -92,7 +92,7 @@ struct HomeView: View {
                                 let version = emulatorStore.installed[emu.id]
                                 CatalogCard(title: emu.name,
                                             detail: emulatorStore.busy == emu.id ? "Downloading and installing…" : (emu.supported ? emu.detail : "Needs macOS \(emu.minimumMacOS) or later"),
-                                            icon: "gamecontroller.fill", tint: .gray,
+                                            icon: "gamecontroller.fill", tint: .gray, logo: emu.id == "switch" ? "ryujinx" : "shadps4",
                                             actionTitle: version == nil ? "Install" : (emulatorStore.needsUpdate(emu) ? "Update" : "Open"),
                                             busy: emulatorStore.busy != nil || !emu.supported) {
                                     if version == nil || emulatorStore.needsUpdate(emu) { emulatorStore.install(emu) } else { emulatorStore.open(emu) }
@@ -373,7 +373,7 @@ struct CatalogCard: View {
             HStack(alignment: .top) {
                 Group {
                     if let logo, let image = BrandLogo.image(logo) {
-                        Image(nsImage: image).renderingMode(.template).resizable().scaledToFit().padding(9)
+                        Image(nsImage: image).renderingMode(image.isTemplate ? .template : .original).resizable().scaledToFit().padding(image.isTemplate ? 9 : 4)
                             .foregroundStyle(.white)
                             .background(tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     } else {
@@ -556,9 +556,11 @@ enum BrandLogo {
     private static var cache: [String: NSImage] = [:]
     static func image(_ name: String) -> NSImage? {
         if let hit = cache[name] { return hit }
-        guard let url = Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Logos"),
+        // SVG = one-color store mark (tinted); PNG = the app's own full-color icon (emulators).
+        let svg = Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Logos")
+        guard let url = svg ?? Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Logos"),
               let image = NSImage(contentsOf: url) else { return nil }
-        image.isTemplate = true
+        image.isTemplate = svg != nil
         cache[name] = image
         return image
     }
