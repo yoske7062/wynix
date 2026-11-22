@@ -49,7 +49,7 @@
     if (t.matches('.seg i')) { t.parentNode.querySelectorAll('i').forEach(i => i.classList.toggle('on', i === t)); return; }
     if (t.textContent === 'Install') {
       t.textContent = 'Installing…';
-      setTimeout(() => { t.textContent = 'Open'; t.classList.add('ok'); t.closest('div').querySelector('em').textContent = 'Installed and ready'; }, 1400);
+      setTimeout(() => { t.textContent = 'Open'; t.classList.add('ok'); t.closest('.card').querySelector('em').textContent = 'Installed and ready'; }, 1400);
     } else if (t.textContent === 'Play') {
       t.textContent = 'Starting…'; setTimeout(() => t.textContent = 'Play', 1600);
     } else if (t.textContent === 'Create') {
