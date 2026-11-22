@@ -2238,7 +2238,7 @@ struct BottleSidePanel: View {
                         store.optimizeForGaming(bottle) { loadMacDriver() }
                     } label: {
                         Label(store.isOptimized(bottle) ? "Optimized ✓ (Apply Again)" : "Optimize for Gaming",
-                              systemImage: store.isOptimized(bottle) ? "checkmark.circle.fill" : "bolt.fill")
+                              systemImage: store.isOptimized(bottle) ? "checkmark.circle.fill" : "gauge.with.dots.needle.67percent")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -2435,7 +2435,7 @@ struct BottleSidePanel: View {
             BigActionButton(title: optimized ? "Optimized ✓" : "Make Games Run Faster",
                             detail: optimized ? "Best settings already on. Click to apply again."
                                               : "One click: the best speed settings",
-                            icon: optimized ? "checkmark.circle.fill" : "bolt.fill", tint: .steamyAccent) {
+                            icon: optimized ? "checkmark.circle.fill" : "gauge.with.dots.needle.67percent", tint: .steamyAccent) {
                 store.optimizeForGaming(bottle) { loadMacDriver() }
             }
             BigActionButton(title: "Something Not Working?", detail: "Closes everything in this space and starts it again",
@@ -2882,7 +2882,7 @@ struct OptimizeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Optimize for Gaming", systemImage: "bolt.fill").font(.app(.title2).bold()).foregroundStyle(.steamyAccent)
+            Label("Optimize for Gaming", systemImage: "gauge.with.dots.needle.67percent").font(.app(.title2).bold()).foregroundStyle(.steamyAccent)
             let pending = store.bottles.filter { !store.isOptimized($0) }
             if pending.isEmpty {
                 Label("All bottles are already optimized. No need to do it again.", systemImage: "checkmark.circle.fill")

@@ -201,7 +201,7 @@ struct HomeView: View {
                 Chip(title: "Add a store", icon: "bag", action: showStores)
                 Chip(title: "Install a Windows app", icon: "plus.square", action: installApp)
                 if !games.isEmpty {
-                    Chip(title: "Make games faster", icon: "bolt", action: optimize)
+                    Chip(title: "Make games faster", icon: "gauge.with.dots.needle.67percent", action: optimize)
                 } else {
                     Chip(title: "Take the tour", icon: "sparkles", action: tour)
                 }

@@ -466,7 +466,7 @@ struct ContentView: View {
                 RailButton(icon: "house", label: "Home", selected: selection == .management) { selection = .management }
                 RailButton(icon: "gamecontroller", label: L10n.string("section.games"), selected: selection == .games) { selection = .games }
                 RailButton(icon: "plus.square", label: "Install a Windows App") { showInstall = true }
-                RailButton(icon: "bolt", label: "Make Games Faster") { showOptimize = true }
+                RailButton(icon: "gauge.with.dots.needle.67percent", label: "Make Games Faster") { showOptimize = true }
                 Spacer()
                 SettingsLink { Image(systemName: "gearshape").font(.system(size: 17, weight: .light)).frame(width: 40, height: 40) }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
