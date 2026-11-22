@@ -885,6 +885,7 @@ struct GameLibraryView: View {
                     systemImage: "gamecontroller",
                     description: Text(L10n.string("games.empty.detail"))
                 )
+                .frame(maxWidth: .infinity)
                 Spacer()
             } else {
                 ScrollView {

@@ -14,7 +14,7 @@
 "error.taskTimedOut" = "That took too long and was stopped. Try again.";
 "games.createShortcut" = "Create Shortcut";
 "games.empty" = "No Installed Games";
-"games.empty.detail" = "Open Steam, install a game there, then press Refresh.";
+"games.empty.detail" = "Install a game from a store, then press Refresh.";
 "games.finding" = "Finding installed games…";
 "games.loading" = "Loading games…";
 "games.openManagement" = "Go to Home";

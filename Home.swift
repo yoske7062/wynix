@@ -43,10 +43,10 @@ struct HomeView: View {
     /// One line: what to do next.
     private var prompt: String {
         switch model.state {
-        case .ready: games.isEmpty ? "Install a game in Steam and it shows up here." : "What are we playing today?"
+        case .ready: games.isEmpty ? "Add a store, install a game, press Play." : "What are we playing today?"
         case .installing: "Installing Steam. This takes a few minutes."
         case .checking: "Getting things ready…"
-        default: "Let's start by installing Steam."
+        default: "Pick a store or install any Windows app."
         }
     }
 
@@ -191,14 +191,13 @@ struct HomeView: View {
             switch model.state {
             case .ready:
                 if games.isEmpty {
-                    Chip(title: model.isSteamRunning ? "Show Steam" : "Open Steam", icon: "play.fill", primary: true, action: model.openSteam)
-                        .disabled(model.isBusy)
+                    Chip(title: "Add a store", icon: "bag", primary: true, action: showStores)
                 } else {
                     Chip(title: "Play a game", icon: "play.fill", primary: true, action: openGames)
                     Chip(title: model.isSteamRunning ? "Show Steam" : "Open Steam", icon: "macwindow", action: model.openSteam)
                         .disabled(model.isBusy)
                 }
-                Chip(title: "Add a store", icon: "bag", action: showStores)
+                if !games.isEmpty { Chip(title: "Add a store", icon: "bag", action: showStores) }
                 Chip(title: "Install a Windows app", icon: "plus.square", action: installApp)
                 if !games.isEmpty {
                     Chip(title: "Make games faster", icon: "gauge.with.dots.needle.67percent", action: optimize)
@@ -206,9 +205,7 @@ struct HomeView: View {
                     Chip(title: "Take the tour", icon: "sparkles", action: tour)
                 }
             case .notInstalled, .partial, .failed:
-                Chip(title: model.primaryTitle, icon: "arrow.down.circle", primary: true, action: model.primaryAction)
-                    .disabled(model.isBusy)
-                Chip(title: "Other stores", icon: "bag", action: showStores)
+                Chip(title: "Add a store", icon: "bag", primary: true, action: showStores)
                 Chip(title: "Install a Windows app", icon: "plus.square", action: installApp)
                 Chip(title: "Take the tour", icon: "sparkles", action: tour)
             case .installing, .checking:
@@ -258,21 +255,21 @@ struct HomeView: View {
     }
 }
 
-/// "1 Install Steam › 2 Sign in › 3 Press Play", with the current step lit.
+/// "1 Add a store › 2 Install a game › 3 Press Play", with the current step lit.
 struct StepsLine: View {
     let current: Int
 
     var body: some View {
         HStack(spacing: 10) {
-            step(1, "Install Steam")
+            step(1, "Add a store")
             Image(systemName: "chevron.right").font(.app(.caption)).foregroundStyle(.tertiary)
-            step(2, "Sign in and get a game")
+            step(2, "Install a game")
             Image(systemName: "chevron.right").font(.app(.caption)).foregroundStyle(.tertiary)
             step(3, "Press Play")
         }
         .font(.app(.callout))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(current) of 3. 1, Install Steam. 2, Sign in and get a game. 3, Press Play.")
+        .accessibilityLabel("Step \(current) of 3. 1, Add a store. 2, Install a game. 3, Press Play.")
     }
 
     private func step(_ n: Int, _ title: String) -> some View {
@@ -689,7 +686,7 @@ struct SettingsView: View {
             Link("Terms, privacy and licenses", destination: URL(string: "https://wynix.app/legal.html")!)
 
             Section("Help") {
-                HelpItem("Home", "Game stores and your bottles. Press Install Steam once, then Open it and sign in with your normal account.")
+                HelpItem("Home", "Stores, emulators and your Windows spaces. Install a store once, then open it and sign in with your normal account.")
                 HelpItem("Games", "Every Steam game you installed. Press Play: WYNIX detects DirectX 11 or 12 and recommends the best settings. Right click a game to make a Dock shortcut or hide it.")
                 HelpItem("Bottles", "A bottle is a small Windows setup that lives inside WYNIX. Each one keeps its own programs and settings, so a broken game can't mess up the rest.")
                 HelpItem("Install from File", "Runs any Windows installer (.exe or .msi), games or not. The program shows up in the bottle and in ~/Applications like a Mac app.")
